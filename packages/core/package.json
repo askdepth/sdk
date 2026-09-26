@@ -1,6 +1,6 @@
 {
   "name": "@askdepth/core",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Askdepth browser RUM core — init, consent, anomaly engines, W3C tracing, batching.",
   "license": "MIT",
   "type": "module",
@@ -15,8 +15,12 @@
       "require": "./dist/index.cjs"
     }
   },
-  "files": ["dist"],
-  "publishConfig": { "access": "public" },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup",
     "test": "vitest run --coverage",
