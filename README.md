@@ -40,7 +40,7 @@ pnpm changeset     # declare an independent version bump
 ## Release flow
 
 1. On a PR: add a changeset (`pnpm changeset`) unless labelled `skip-changeset`.
-2. Merge to `main` → Changesets opens/updates the **Version Packages** PR.
+2. Merge to `master` → Changesets opens/updates the **Version Packages** PR.
 3. Merge that PR → `release.yml` publishes changed packages to npm with provenance.
 4. Snapshot/canary: comment `/release:snapshot` or run `snapshot.yml` manually.
 
