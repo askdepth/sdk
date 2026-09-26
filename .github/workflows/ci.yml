@@ -13,7 +13,7 @@ concurrency:
 jobs:
   pr-title:
     name: Conventional PR title
-    if: github.event_name == 'pull_request'
+    if: github.event_name == 'pull_request' && !startsWith(github.head_ref, 'changeset-release/')
     runs-on: ubuntu-latest
     permissions:
       pull-requests: read
@@ -95,7 +95,8 @@ jobs:
       - name: Require changeset
         if: >
           github.event_name == 'pull_request' &&
-          !contains(github.event.pull_request.labels.*.name, 'skip-changeset')
+          !contains(github.event.pull_request.labels.*.name, 'skip-changeset') &&
+          !startsWith(github.head_ref, 'changeset-release/')
         run: |
           set -euo pipefail
           count="$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
