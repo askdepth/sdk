@@ -1,0 +1,109 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main, develop]
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  pr-title:
+    name: Conventional PR title
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: read
+    steps:
+      - uses: amannn/action-semantic-pull-request@v5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  validate:
+    name: Lint · Typecheck · Test · Build · Size
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      # PR: only changed packages + their dependents (...[base]).
+      # Push to main: full graph (filter vs HEAD would be empty after the push).
+      - name: Run checks on changed packages only
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE_REF="origin/${{ github.base_ref }}"
+            echo "Turbo filter: ...[${BASE_REF}]"
+            pnpm turbo run lint typecheck test build --filter="...[${BASE_REF}]"
+          else
+            echo "Full turbo run on push to ${{ github.ref_name }}"
+            pnpm turbo run lint typecheck test build
+          fi
+
+      - name: Detect @askdepth/core impact
+        id: core
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_REF="origin/${{ github.base_ref }}"
+          affected="$(pnpm turbo run build --dry-run=json --filter="...[${BASE_REF}]")"
+          if printf '%s' "$affected" | node -e "
+            const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+            const names = new Set([
+              ...(data.packages ?? []),
+              ...(data.tasks ?? []).map((t) => t.package).filter(Boolean),
+            ]);
+            process.exit(names.has('@askdepth/core') ? 0 : 1);
+          "; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping size-limit and Playwright — @askdepth/core not in the affected graph."
+          fi
+
+      - name: Bundle size (@askdepth/core < 10 KB gzip)
+        if: steps.core.outputs.run == 'true'
+        run: pnpm --filter @askdepth/core size
+
+      - name: Install Playwright browsers
+        if: steps.core.outputs.run == 'true'
+        run: pnpm --filter @askdepth/core exec playwright install --with-deps chromium firefox webkit
+
+      - name: Browser integration tests
+        if: steps.core.outputs.run == 'true'
+        run: pnpm --filter @askdepth/core test:e2e
+
+      - name: Require changeset
+        if: >
+          github.event_name == 'pull_request' &&
+          !contains(github.event.pull_request.labels.*.name, 'skip-changeset')
+        run: |
+          set -euo pipefail
+          count="$(find .changeset -maxdepth 1 -type f -name '*.md' ! -name 'README.md' | wc -l | tr -d ' ')"
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No changeset for this PR. Run \`pnpm changeset\` or add the \`skip-changeset\` label."
+            exit 1
+          fi
+          echo "Found $count changeset file(s)."
+          pnpm exec changeset status --since="origin/${{ github.base_ref }}" || true

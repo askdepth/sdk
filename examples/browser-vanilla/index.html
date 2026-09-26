@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Askdepth SDK — vanilla example</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: ui-sans-serif, system-ui, sans-serif;
+        line-height: 1.45;
+      }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background: linear-gradient(160deg, #f4f7fb, #e8eef7 40%, #f8fafc);
+        color: #0f172a;
+      }
+      main {
+        max-width: 42rem;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 4rem;
+      }
+      h1 {
+        font-size: 1.75rem;
+        letter-spacing: -0.03em;
+        margin: 0 0 0.35rem;
+      }
+      p {
+        margin: 0 0 1.25rem;
+        color: #334155;
+      }
+      .row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-bottom: 1rem;
+      }
+      button {
+        appearance: none;
+        border: 1px solid #cbd5e1;
+        background: #fff;
+        border-radius: 0.5rem;
+        padding: 0.55rem 0.85rem;
+        font: inherit;
+        cursor: pointer;
+      }
+      button:hover {
+        background: #f1f5f9;
+      }
+      button.primary {
+        background: #0f172a;
+        color: #fff;
+        border-color: #0f172a;
+      }
+      #log {
+        white-space: pre-wrap;
+        background: #0f172a;
+        color: #e2e8f0;
+        border-radius: 0.75rem;
+        padding: 1rem;
+        min-height: 8rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.8rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <h1>Askdepth</h1>
+      <p>
+        Vanilla browser demo for <code>@askdepth/core</code>. Consent starts as
+        <code>unknown</code> — grant it before tracking.
+      </p>
+      <div class="row">
+        <button class="primary" id="grant">Grant consent</button>
+        <button id="revoke">Revoke consent</button>
+        <button id="track">Track event</button>
+        <button id="identify">Identify</button>
+        <button id="fetch">Fetch /api/ping</button>
+        <button id="trace">Show traceparent</button>
+      </div>
+      <div id="log"></div>
+    </main>
+    <script type="module">
+      import {
+        Askdepth,
+        SDK_VERSION,
+        PROTOCOL_VERSION,
+      } from '../../packages/core/dist/index.mjs';
+
+      const logEl = document.getElementById('log');
+      const log = (msg) => {
+        logEl.textContent += `${msg}\n`;
+      };
+
+      Askdepth.init({
+        writeKey: '550e8400-e29b-41d4-a716-446655440000',
+        projectId: '550e8400-e29b-41d4-a716-446655440000',
+        endpoint: 'https://ingest.example.test/v1',
+        consent: 'unknown',
+        sampleRate: 1,
+        environment: 'development',
+      });
+
+      log(`booted ${SDK_VERSION} (protocol ${PROTOCOL_VERSION})`);
+      log('consent=unknown — listeners idle');
+
+      document.getElementById('grant').onclick = () => {
+        Askdepth.setConsent('granted');
+        log('consent=granted — RUM + tracing active');
+      };
+      document.getElementById('revoke').onclick = () => {
+        Askdepth.revokeConsent();
+        log('consent revoked — buffers cleared');
+      };
+      document.getElementById('track').onclick = () => {
+        Askdepth.track('demo_click', { source: 'vanilla' });
+        log('track(demo_click)');
+      };
+      document.getElementById('identify').onclick = () => {
+        Askdepth.identify('user_demo', { plan: 'trial' });
+        log('identify(user_demo)');
+      };
+      document.getElementById('fetch').onclick = async () => {
+        try {
+          await fetch('/api/ping');
+        } catch {
+          /* local static server has no /api — header still applied */
+        }
+        log('fetch(/api/ping) — inspect Network → Request Headers → traceparent');
+      };
+      document.getElementById('trace').onclick = () => {
+        log(`traceparent=${Askdepth.getTraceparent() ?? 'null'}`);
+      };
+    </script>
+  </body>
+</html>

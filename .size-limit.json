@@ -1,0 +1,7 @@
+[
+  {
+    "path": "packages/core/dist/index.mjs",
+    "limit": "10 KB",
+    "gzip": true
+  }
+]
