@@ -1,6 +1,6 @@
 {
   "name": "@askdepth/core",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Askdepth browser RUM core — init, consent, anomaly engines, W3C tracing, batching.",
   "license": "MIT",
   "repository": {
@@ -55,7 +55,9 @@
       "path": "dist/index.mjs",
       "limit": "10 kB",
       "gzip": true,
-      "ignore": ["@askdepth/replay"]
+      "ignore": [
+        "@askdepth/replay"
+      ]
     }
   ]
 }
