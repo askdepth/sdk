@@ -1,8 +1,11 @@
 {
   "name": "@askdepth/replay",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Askdepth session replay — rrweb wrapper with a 45s ring buffer.",
-  "private": true,
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
   "license": "MIT",
   "repository": {
     "type": "git",

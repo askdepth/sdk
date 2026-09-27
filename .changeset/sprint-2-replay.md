@@ -1,5 +1,5 @@
 ---
-"@askdepth/contracts": minor
+"@askdepth/contracts": patch
 "@askdepth/core": minor
 "@askdepth/replay": minor
 ---
