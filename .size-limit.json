@@ -1,7 +1,15 @@
 [
   {
+    "name": "@askdepth/core (initial bundle)",
     "path": "packages/core/dist/index.mjs",
-    "limit": "10 KB",
+    "limit": "10 kB",
+    "gzip": true,
+    "ignore": ["@askdepth/replay"]
+  },
+  {
+    "name": "@askdepth/replay (lazy bundle)",
+    "path": "packages/replay/dist/index.js",
+    "limit": "35 kB",
     "gzip": true
   }
 ]

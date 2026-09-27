@@ -1,4 +1,5 @@
 import { resetActivity, markNavigation } from './activity.js';
+import { publishAnomaly } from './anomaly-bus.js';
 import { isBrowser } from './browser.js';
 import { armDeadClick } from './dead.js';
 import {
@@ -8,6 +9,7 @@ import {
   type ErrorClick,
 } from './errors.js';
 import { asProjectId, newSessionId, newTraceId } from './ids.js';
+import { armReplay, noteFriction, stopReplay } from './replay-loader.js';
 import { isRapidAllowed, pushRageClick, resetRage, type ClickRecord, type RageClick } from './rage.js';
 import { asElement, cssPath } from './selector.js';
 import { currentTraceparent, installTrace, uninstallTrace } from './trace.js';
@@ -25,6 +27,8 @@ export interface AskdepthInitOptions {
   allowedTracingOrigins?: string[];
   projectId?: string;
   environment?: 'production' | 'staging' | 'development';
+  /** Opt-in session replay. `true` loads `@askdepth/replay` on idle; an object can override the upload URL. */
+  replay?: boolean | { endpoint?: string; checkoutEveryNms?: number };
 }
 
 interface Runtime {
@@ -39,6 +43,9 @@ interface Runtime {
   deadStops: Array<() => void>;
   listening: boolean;
   lastScrollAt: number;
+  replay: boolean;
+  replayEndpoint: string;
+  checkoutEveryNms?: number;
 }
 
 let runtime: Runtime | null = null;
@@ -62,7 +69,28 @@ function keyOf(options: AskdepthInitOptions): string {
     (options.allowedTracingOrigins ?? []).join(','),
     options.projectId ?? '',
     options.environment ?? 'production',
+    replayKey(options),
   ].join('|');
+}
+
+function replayKey(options: AskdepthInitOptions): string {
+  if (options.replay === true) return 'replay';
+  if (!options.replay) return '';
+  return `replay:${options.replay.endpoint ?? ''}:${options.replay.checkoutEveryNms ?? ''}`;
+}
+
+function replayEndpointOf(options: AskdepthInitOptions): string {
+  if (typeof options.replay === 'object' && options.replay.endpoint) return options.replay.endpoint;
+  const base = options.endpoint ?? '';
+  try {
+    return new URL('/v1/replays/upload', base).toString();
+  } catch {
+    return `${base.replace(/\/$/, '')}/v1/replays/upload`;
+  }
+}
+
+function replayEnabled(options: AskdepthInitOptions): boolean {
+  return options.replay === true || (typeof options.replay === 'object' && options.replay !== null);
 }
 
 function canCollect(): boolean {
@@ -71,6 +99,13 @@ function canCollect(): boolean {
 
 function emit(event: RageClick | DeadClick | ErrorClick, high: boolean): void {
   if (!canCollect() || !runtime) return;
+  if (runtime.replay) {
+    publishAnomaly({
+      anomaly_id: newSessionId(),
+      type: event.type,
+      timestamp: Date.now(),
+    });
+  }
   runtime.queue.enqueue(event, high);
 }
 
@@ -96,6 +131,7 @@ export function onPointerDown(event: PointerEvent): void {
   if (!event.isTrusted) return;
   const el = asElement(event.target);
   if (!el) return;
+  if (runtime.replay) noteFriction(Date.now());
   if (event.pointerType === 'touch') {
     const started = Date.now();
     if (started - runtime.lastScrollAt < TOUCH_SCROLL_MS) return;
@@ -151,6 +187,14 @@ function start(rt: Runtime): void {
   if (rt.listening || terminated) return;
   if (!rt.sessionId) rt.sessionId = newSessionId();
   rt.traceId = newTraceId();
+  if (rt.replay) {
+    armReplay({
+      sessionId: rt.sessionId,
+      environment: rt.options.environment ?? 'production',
+      endpoint: rt.replayEndpoint,
+      ...(rt.checkoutEveryNms !== undefined ? { checkoutEveryNms: rt.checkoutEveryNms } : {}),
+    });
+  }
   installTrace({
     traceId: rt.traceId,
     endpoint: rt.options.endpoint ?? '',
@@ -187,6 +231,7 @@ function onHide(): void {
 }
 
 function stopCollectors(rt: Runtime): void {
+  stopReplay();
   for (const stop of rt.deadStops.splice(0)) stop();
   for (const fn of rt.cleanups.splice(0)) fn();
   rt.listening = false;
@@ -248,6 +293,11 @@ function boot(options: AskdepthInitOptions): void {
     deadStops: [],
     listening: false,
     lastScrollAt: 0,
+    replay: replayEnabled(options),
+    replayEndpoint: replayEndpointOf(options),
+    ...(typeof options.replay === 'object' && options.replay.checkoutEveryNms !== undefined
+      ? { checkoutEveryNms: options.replay.checkoutEveryNms }
+      : {}),
   };
   if (runtime.consent === 'granted' && runtime.sampled) start(runtime);
 }
@@ -315,4 +365,5 @@ export function resetSdkForTests(): void {
   warned = false;
   configWarned = false;
   teardown();
+  stopReplay();
 }

@@ -7,6 +7,9 @@ export default defineConfig({
   sourcemap: true,
   clean: true,
   treeshake: true,
+  minify: true,
   target: 'es2022',
   platform: 'browser',
+  external: ['@askdepth/contracts'],
+  noExternal: ['fflate', '@rrweb/record'],
 });

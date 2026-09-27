@@ -16,7 +16,7 @@ export default defineConfig({
   minify: false,
   target: 'es2022',
   platform: 'browser',
-  external: ['@askdepth/contracts'],
+  external: ['@askdepth/contracts', '@askdepth/replay'],
   outExtension({ format }) {
     return { js: format === 'esm' ? '.mjs' : '.cjs' };
   },
