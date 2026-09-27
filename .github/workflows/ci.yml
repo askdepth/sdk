@@ -115,7 +115,9 @@ jobs:
 
       - name: Install Playwright browsers
         if: steps.core.outputs.run == 'true' || steps.replay.outputs.run == 'true'
-        run: pnpm --filter @askdepth/core exec playwright install --with-deps chromium firefox webkit
+        run: |
+          pnpm --filter @askdepth/core exec playwright install --with-deps chromium firefox webkit
+          pnpm --filter @askdepth/replay exec playwright install --with-deps chromium firefox webkit
 
       - name: Browser integration tests
         if: steps.core.outputs.run == 'true'
