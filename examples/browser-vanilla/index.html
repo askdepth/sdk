@@ -4,6 +4,15 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Askdepth SDK — vanilla example</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@askdepth/core": "../../packages/core/dist/index.mjs",
+          "@askdepth/replay": "../../packages/replay/dist/index.js",
+          "@askdepth/contracts": "../../packages/contracts/dist/index.js"
+        }
+      }
+    </script>
     <style>
       :root {
         color-scheme: light;
@@ -79,6 +88,8 @@
         <button id="identify">Identify</button>
         <button id="fetch">Fetch /api/ping</button>
         <button id="trace">Show traceparent</button>
+        <button id="rage">Rage click test</button>
+        <button id="err">Trigger JS error</button>
       </div>
       <div id="log"></div>
     </main>
@@ -101,18 +112,19 @@
         consent: 'unknown',
         sampleRate: 1,
         environment: 'development',
+        replay: true,
       });
 
-      log(`booted ${SDK_VERSION} (protocol ${PROTOCOL_VERSION})`);
+      log(`booted ${SDK_VERSION} (protocol ${PROTOCOL_VERSION}, session replay enabled)`);
       log('consent=unknown — listeners idle');
 
       document.getElementById('grant').onclick = () => {
         Askdepth.setConsent('granted');
-        log('consent=granted — RUM + tracing active');
+        log('consent=granted — RUM + replay recorder active');
       };
       document.getElementById('revoke').onclick = () => {
         Askdepth.revokeConsent();
-        log('consent revoked — buffers cleared');
+        log('consent revoked — buffers cleared, recorder stopped');
       };
       document.getElementById('track').onclick = () => {
         Askdepth.track('demo_click', { source: 'vanilla' });
@@ -132,6 +144,21 @@
       };
       document.getElementById('trace').onclick = () => {
         log(`traceparent=${Askdepth.getTraceparent() ?? 'null'}`);
+      };
+
+      let rapidClicks = 0;
+      let rapidReset = null;
+      document.getElementById('rage').onclick = () => {
+        rapidClicks++;
+        clearTimeout(rapidReset);
+        rapidReset = setTimeout(() => { rapidClicks = 0; }, 800);
+        log(`rage click candidate (${rapidClicks}/3)`);
+      };
+      document.getElementById('err').onclick = () => {
+        log('triggering test runtime error');
+        setTimeout(() => {
+          throw new Error('Test unhandled exception from vanilla demo');
+        }, 10);
       };
     </script>
   </body>
