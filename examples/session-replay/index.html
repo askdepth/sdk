@@ -1,0 +1,913 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Askdepth — Session Replay & PII Masking Demo</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "@askdepth/core": "../../packages/core/dist/index.mjs",
+          "@askdepth/replay": "../../packages/replay/dist/index.js",
+          "@askdepth/contracts": "../../packages/contracts/dist/index.js",
+          "@rrweb/replay": "../../packages/replay/node_modules/@rrweb/replay/dist/replay.js"
+        }
+      }
+    </script>
+    <style>
+      :root {
+        --bg: #090d16;
+        --surface: #111827;
+        --surface-hover: #1f2937;
+        --border: #374151;
+        --text: #f9fafb;
+        --text-muted: #9ca3af;
+        --primary: #3b82f6;
+        --primary-hover: #2563eb;
+        --danger: #ef4444;
+        --warning: #f59e0b;
+        --success: #10b981;
+        --accent: #8b5cf6;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+        line-height: 1.5;
+        color-scheme: dark;
+      }
+      * {
+        box-sizing: border-box;
+        margin: 0;
+        padding: 0;
+      }
+      body {
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 2rem 1.5rem 4rem;
+      }
+      .container {
+        max-width: 1100px;
+        margin: 0 auto;
+        display: flex;
+        flex-direction: column;
+        gap: 1.75rem;
+      }
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 1.25rem;
+        flex-wrap: wrap;
+        gap: 1rem;
+      }
+      h1 {
+        font-size: 1.75rem;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+      }
+      .badge {
+        font-size: 0.75rem;
+        padding: 0.2rem 0.5rem;
+        border-radius: 9999px;
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+      }
+      .badge.active {
+        background: rgba(16, 185, 129, 0.2);
+        color: var(--success);
+        border: 1px solid var(--success);
+      }
+      .badge.idle {
+        background: rgba(156, 163, 175, 0.2);
+        color: var(--text-muted);
+        border: 1px solid var(--border);
+      }
+      .badge.flashing {
+        background: rgba(239, 68, 68, 0.2);
+        color: var(--danger);
+        border: 1px solid var(--danger);
+        animation: pulse 1.5s infinite;
+      }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
+      }
+      p.subtitle {
+        color: var(--text-muted);
+        font-size: 0.95rem;
+        margin-top: 0.25rem;
+      }
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+        gap: 1.5rem;
+      }
+      .card {
+        background: var(--surface);
+        border: 1px solid var(--border);
+        border-radius: 0.75rem;
+        padding: 1.25rem;
+        display: flex;
+        flex-direction: column;
+        gap: 1rem;
+      }
+      .card h2 {
+        font-size: 1.15rem;
+        font-weight: 600;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        border-bottom: 1px solid var(--border);
+        padding-bottom: 0.5rem;
+      }
+      .btn-group {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+      }
+      button, .btn {
+        appearance: none;
+        background: var(--surface-hover);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.55rem 0.9rem;
+        font-size: 0.875rem;
+        font-weight: 500;
+        cursor: pointer;
+        transition: all 0.15s ease;
+      }
+      button:hover {
+        background: #374151;
+        border-color: #4b5563;
+      }
+      button.primary {
+        background: var(--primary);
+        border-color: var(--primary);
+        color: #fff;
+      }
+      button.primary:hover {
+        background: var(--primary-hover);
+      }
+      button.danger {
+        background: var(--danger);
+        border-color: var(--danger);
+        color: #fff;
+      }
+      button.warning {
+        background: var(--warning);
+        border-color: var(--warning);
+        color: #000;
+      }
+      .field {
+        display: flex;
+        flex-direction: column;
+        gap: 0.35rem;
+      }
+      label {
+        font-size: 0.8rem;
+        font-weight: 600;
+        color: var(--text-muted);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      input, textarea {
+        background: #0d121f;
+        border: 1px solid var(--border);
+        border-radius: 0.4rem;
+        padding: 0.5rem 0.75rem;
+        color: var(--text);
+        font-family: inherit;
+        font-size: 0.9rem;
+      }
+      input:focus, textarea:focus {
+        outline: none;
+        border-color: var(--primary);
+      }
+      .contenteditable-box {
+        background: #0d121f;
+        border: 1px dashed var(--border);
+        border-radius: 0.4rem;
+        padding: 0.75rem;
+        min-height: 4rem;
+        font-size: 0.9rem;
+        outline: none;
+      }
+      .contenteditable-box:focus {
+        border-color: var(--primary);
+      }
+      .askdepth-mask {
+        background: rgba(245, 158, 11, 0.1);
+        border: 1px dashed var(--warning);
+        padding: 0.5rem;
+        border-radius: 0.4rem;
+        font-size: 0.85rem;
+      }
+      .askdepth-block {
+        background: rgba(239, 68, 68, 0.1);
+        border: 1px dashed var(--danger);
+        padding: 0.5rem;
+        border-radius: 0.4rem;
+        font-size: 0.85rem;
+      }
+      .status-panel {
+        display: flex;
+        gap: 1.5rem;
+        flex-wrap: wrap;
+        font-size: 0.85rem;
+        color: var(--text-muted);
+        background: #0d121f;
+        padding: 0.75rem 1rem;
+        border-radius: 0.5rem;
+        border: 1px solid var(--border);
+      }
+      .status-panel strong {
+        color: var(--text);
+      }
+      .log-console {
+        background: #050811;
+        border: 1px solid var(--border);
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.78rem;
+        max-height: 180px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+        color: #d1d5db;
+      }
+      .manifest-viewer {
+        background: #050811;
+        border: 1px solid #1e3a8a;
+        border-radius: 0.5rem;
+        padding: 1rem;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 0.8rem;
+        color: #93c5fd;
+        max-height: 220px;
+        overflow-y: auto;
+        white-space: pre-wrap;
+      }
+      .dead-target {
+        padding: 1rem;
+        background: #1f2937;
+        border-radius: 0.5rem;
+        text-align: center;
+        cursor: pointer;
+        border: 1px solid var(--border);
+        user-select: none;
+        transition: background 0.15s;
+      }
+      .dead-target:hover {
+        background: #2d3748;
+      }
+
+      /* Visual Replay Player Styles */
+      .player-card {
+        border-color: #3b82f6;
+        background: #0c1427;
+      }
+      .mock-browser-frame {
+        background: #1e293b;
+        border: 1px solid #334155;
+        border-radius: 0.5rem;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+      }
+      .mock-browser-bar {
+        background: #0f172a;
+        padding: 0.4rem 0.8rem;
+        display: flex;
+        align-items: center;
+        gap: 0.5rem;
+        border-bottom: 1px solid #334155;
+        font-size: 0.75rem;
+        color: #94a3b8;
+      }
+      .mock-dots {
+        display: flex;
+        gap: 4px;
+      }
+      .mock-dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: #475569;
+      }
+      .mock-dot.red { background: #ef4444; }
+      .mock-dot.yellow { background: #f59e0b; }
+      .mock-dot.green { background: #10b981; }
+      .mock-url {
+        flex: 1;
+        background: #1e293b;
+        padding: 0.15rem 0.5rem;
+        border-radius: 0.25rem;
+        font-family: monospace;
+      }
+      #player-mount {
+        height: 520px;
+        position: relative;
+        overflow: auto;
+        background: #090d16;
+        border-radius: 0 0 0.5rem 0.5rem;
+      }
+      .replayer-wrapper {
+        position: relative;
+        width: 100%;
+        height: 100%;
+      }
+      .replayer-wrapper iframe {
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100% !important;
+        height: 100% !important;
+        border: none;
+      }
+      .replayer-mouse-tail {
+        position: absolute;
+        top: 0;
+        left: 0;
+        pointer-events: none;
+        z-index: 99998;
+      }
+      .replayer-mouse {
+        position: absolute;
+        width: 20px;
+        height: 20px;
+        transition: left 0.05s linear, top 0.05s linear;
+        background-size: contain;
+        background-position: center center;
+        background-repeat: no-repeat;
+        background-image: url('data:image/svg+xml;base64,PHN2ZyBoZWlnaHQ9JzMwMHB4JyB3aWR0aD0nMzAwcHgnICBmaWxsPSIjMDAwMDAwIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGRhdGEtbmFtZT0iTGF5ZXIgMSIgdmlld0JveD0iMCAwIDUwIDUwIiB4PSIwcHgiIHk9IjBweCI+PHRpdGxlPkRlc2lnbl90bnA8L3RpdGxlPjxwYXRoIGQ9Ik00OC43MSw0Mi45MUwzNC4wOCwyOC4yOSw0NC4zMywxOEExLDEsMCwwLDAsNDQsMTYuMzlMMi4zNSwxLjA2QTEsMSwwLDAsMCwxLjA2LDIuMzVMMTYuMzksNDRhMSwxLDAsMCwwLDEuNjUuMzZMMjguMjksMzQuMDgsNDIuOTEsNDguNzFhMSwxLDAsMCwwLDEuNDEsMGw0LjM4LTQuMzhBMSwxLDAsMCwwLDQ4LjcxLDQyLjkxWm0tNS4wOSwzLjY3TDI5LDMyYTEsMSwwLDAsMC0xLjQxLDBsLTkuODUsOS44NUwzLjY5LDMuNjlsMzguMTIsMTRMMzIsMjcuNThBMSwxLDAsMCwwLDMyLDI5TDQ2LjU5LDQzLjYyWiI+PC9wYXRoPjwvc3ZnPg==');
+        border-color: transparent;
+        pointer-events: none;
+        z-index: 99999;
+      }
+      .replayer-mouse::after {
+        content: '';
+        display: inline-block;
+        width: 20px;
+        height: 20px;
+        background: rgb(59, 130, 246);
+        border-radius: 100%;
+        transform: translate(-50%, -50%);
+        opacity: 0.3;
+      }
+      .replayer-mouse.active::after {
+        animation: mouse-click 0.2s ease-in-out 1;
+      }
+      @keyframes mouse-click {
+        0% { opacity: 0.3; width: 20px; height: 20px; }
+        50% { opacity: 0.7; width: 32px; height: 32px; }
+        100% { opacity: 0.3; width: 20px; height: 20px; }
+      }
+      .player-placeholder {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        height: 100%;
+        color: #64748b;
+        background: #0f172a;
+        gap: 0.5rem;
+        font-size: 0.9rem;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <header>
+        <div>
+          <h1>
+            Askdepth Session Replay
+            <span class="badge idle" id="recorder-status">RECORDING ACTIVE</span>
+          </h1>
+          <p class="subtitle">
+            Continuous 45-second sliding Ring Buffer, client-side PII masking, frustration heuristics, and instant visual replay playback.
+          </p>
+        </div>
+        <div class="btn-group">
+          <button class="primary" id="btn-grant">Grant Consent</button>
+          <button id="btn-revoke">Revoke Consent</button>
+          <button class="warning" id="btn-flash">⚡ Flash Replay Now</button>
+        </div>
+      </header>
+
+      <div class="status-panel">
+        <div>Consent: <strong id="val-consent">granted</strong></div>
+        <div>Session ID: <strong id="val-session">-</strong></div>
+        <div>Buffer Window: <strong>45s FIFO in RAM</strong></div>
+        <div>Friction Events: <strong id="val-friction">0</strong></div>
+        <div>Total Slices Captured: <strong id="val-slices">0</strong></div>
+      </div>
+
+      <!-- Architecture & Performance Notice -->
+      <div style="background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.3); border-radius: 0.5rem; padding: 0.85rem 1.25rem; font-size: 0.85rem; line-height: 1.6; display: flex; flex-direction: column; gap: 0.35rem;">
+        <div style="font-weight: 600; color: #60a5fa; display: flex; align-items: center; gap: 0.5rem;">
+          <span>⚡</span>
+          <span>Zero Performance Impact Architecture: Lazy &amp; Idle Loading in Production</span>
+        </div>
+        <p style="color: #cbd5e1;">
+          In production web apps, <code>@askdepth/replay</code> is <strong>never loaded eagerly</strong>. The lightweight core (~3 KB) boots immediately, while the recording engine (~30 KB gzip) is dynamically imported strictly via <code>requestIdleCallback</code> after <code>window.load</code> (+3s delay). If the user's connection is slow or the site uses heavy libraries (like Framer Motion, Three.js, or complex hydration), Askdepth never competes for CPU or network resources, guaranteeing zero degradation to Core Web Vitals (LCP, INP, TBT). It only preempts on early frustration heuristics (e.g. 2 rapid clicks).
+        </p>
+      </div>
+
+      <div class="grid">
+        <!-- PII Masking Card -->
+        <div class="card">
+          <h2>1. Client-Side PII Masking Laboratory</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            All inputs, cards, emails, phones, and contenteditable nodes are scrubbed on the client <strong>before</strong> entering memory.
+          </p>
+          <div class="field">
+            <label>Credit Card Number (Luhn check masked)</label>
+            <input type="text" id="input-card" value="4532 0159 2841 8320" />
+          </div>
+          <div class="field">
+            <label>Email Address</label>
+            <input type="email" id="input-email" value="alex.engineer@example.com" />
+          </div>
+          <div class="field">
+            <label>Password (Completely blocked)</label>
+            <input type="password" id="input-password" value="SuperSecretPassword123" />
+          </div>
+          <div class="field">
+            <label>ContentEditable Rich Text Note (Masked)</label>
+            <div class="contenteditable-box" contenteditable="true" id="editor-note">
+              Confidential invoice note: sent to billing@client.org on 2026-09-27. Card: 4111 2222 3333 4444.
+            </div>
+          </div>
+          <div class="askdepth-mask" data-askdepth-mask>
+            <strong>.askdepth-mask container:</strong>
+            <span>Internal salary bonus: $125,000 / year (all text masked with asterisks).</span>
+          </div>
+          <div class="askdepth-block" data-askdepth-block>
+            <strong>.askdepth-block container:</strong>
+            <div>Sensitive biometric canvas / private widget (replaced with blank box).</div>
+          </div>
+          <div class="field">
+            <label>Accessible Button with sensitive aria-label & title</label>
+            <button
+              id="btn-sensitive-attr"
+              aria-label="Delete account user.priv@example.com"
+              title="Card: 4532 1111 2222 3333"
+            >
+              Hover to test attribute masking
+            </button>
+          </div>
+        </div>
+
+        <!-- Frustration Heuristics & Auto-Flash Card -->
+        <div class="card">
+          <h2>2. Frustration Heuristics Lab</h2>
+          <p style="font-size: 0.85rem; color: var(--text-muted);">
+            Heuristics continuously evaluate DOM interactions. When user frustration occurs, the SDK automatically flashes the last 45s of the session.
+          </p>
+
+          <div class="field">
+            <label>Heuristic A: Rage Click (Rapid 3+ clicks in &lt;1000ms)</label>
+            <button class="danger" id="btn-rage" style="padding: 0.8rem; font-weight: 700;">
+              ⚡ RAGE CLICK ME RAPIDLY (Clicks: <span id="rage-counter">0</span>)
+            </button>
+          </div>
+
+          <div class="field">
+            <label>Heuristic B: Dead Click (Interactive cursor with no response)</label>
+            <div class="dead-target" id="dead-click-target">
+              Fake "Checkout Now" button with pointer cursor (triggers dead click)
+            </div>
+          </div>
+
+          <div class="field">
+            <label>Heuristic C: Error Click (Unhandled Exception)</label>
+            <button class="danger" id="btn-throw-error">
+              Simulate Fatal JS Error
+            </button>
+          </div>
+
+          <div class="field">
+            <label>Throttled SPA Route Change</label>
+            <div class="btn-group">
+              <button id="nav-cart">Navigate /cart</button>
+              <button id="nav-checkout">Navigate /checkout</button>
+              <button id="nav-home">Navigate /home</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- VISUAL PLAYER SECTION (Blocked from self-recording) -->
+      <div class="card player-card" id="player-card" data-askdepth-block>
+        <h2>🎬 3. Live Visual Replay Player (What you did with masked PII)</h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          When you click "⚡ Flash Replay Now" or trigger a Rage Click, the captured slice is intercepted, decompressed, and played back below. Notice how your email, credit card, and password are <strong>completely masked</strong>!
+        </p>
+        <div class="btn-group" style="align-items: center;">
+          <button class="primary" id="player-btn-play" disabled>▶ Play</button>
+          <button id="player-btn-pause" disabled>⏸ Pause</button>
+          <button id="player-btn-restart" disabled>⏪ Restart</button>
+          <span style="font-size: 0.8rem; color: var(--text-muted); margin-left: 0.5rem;">
+            Playback Speed:
+          </span>
+          <select id="player-speed" style="background: var(--surface); color: var(--text); border: 1px solid var(--border); border-radius: 0.3rem; padding: 0.3rem;">
+            <option value="1">1x Normal</option>
+            <option value="2">2x Fast</option>
+            <option value="4">4x Super Fast</option>
+          </select>
+          <span id="player-info" style="font-size: 0.8rem; color: var(--accent); margin-left: auto;">
+            Waiting for flash...
+          </span>
+        </div>
+        <div class="mock-browser-frame">
+          <div class="mock-browser-bar">
+            <div class="mock-dots">
+              <div class="mock-dot red"></div>
+              <div class="mock-dot yellow"></div>
+              <div class="mock-dot green"></div>
+            </div>
+            <div class="mock-url">rrweb-replayer://session-slice-preview</div>
+          </div>
+          <div id="player-mount">
+            <div class="player-placeholder">
+              <span style="font-size: 2rem;">📼</span>
+              <span>Replay will appear here automatically when a slice is emitted.</span>
+              <span style="font-size: 0.75rem; color: #475569;">Type something in the forms above and click "Rage Click Me" or "Flash Replay Now".</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Ingest Mock & Replay Manifest Inspector -->
+      <div class="card">
+        <h2>3. Replay Slice Manifest & Upload Inspector (Mock Ingest)</h2>
+        <p style="font-size: 0.85rem; color: var(--text-muted);">
+          Intercepts keepalive uploads to <code>/v1/replays/upload</code>. Demonstrates W3C 64KB safe chunking, Gzip/Deflate compression, and verified baseline snapshots.
+        </p>
+        <div class="manifest-viewer" id="manifest-viewer">// Waiting for session replay flash...
+// Click "⚡ RAGE CLICK ME RAPIDLY" or "⚡ Flash Replay Now" above to trigger a slice upload.</div>
+      </div>
+
+      <!-- Activity Log -->
+      <div class="card">
+        <h2>4. Live Activity Log</h2>
+        <div class="log-console" id="log-console"></div>
+      </div>
+    </div>
+
+    <script type="module">
+      import { Askdepth, SDK_VERSION } from '@askdepth/core';
+      import { createReplayEngine } from '@askdepth/replay';
+      import { Replayer } from '@rrweb/replay';
+
+      const logEl = document.getElementById('log-console');
+      const manifestViewer = document.getElementById('manifest-viewer');
+      const recorderStatusEl = document.getElementById('recorder-status');
+      const valConsent = document.getElementById('val-consent');
+      const valSession = document.getElementById('val-session');
+      const valFriction = document.getElementById('val-friction');
+      const valSlices = document.getElementById('val-slices');
+      const rageCounterEl = document.getElementById('rage-counter');
+      const playerMount = document.getElementById('player-mount');
+      const playerBtnPlay = document.getElementById('player-btn-play');
+      const playerBtnPause = document.getElementById('player-btn-pause');
+      const playerBtnRestart = document.getElementById('player-btn-restart');
+      const playerSpeed = document.getElementById('player-speed');
+      const playerInfo = document.getElementById('player-info');
+
+      let frictionCount = 0;
+      let slicesCount = 0;
+      let rageClicks = 0;
+      let rageTimer = null;
+      let currentReplayer = null;
+      let lastDecodedEvents = null;
+
+      function log(msg) {
+        const time = new Date().toLocaleTimeString();
+        logEl.textContent = `[${time}] ${msg}\n` + logEl.textContent;
+      }
+
+      function updateStatus(status, className) {
+        recorderStatusEl.textContent = status;
+        recorderStatusEl.className = `badge ${className}`;
+      }
+
+      // Decompress gzip / deflate base64 chunks
+      async function decompressSlice(parts) {
+        parts.sort((a, b) => a.part_index - b.part_index);
+        const binaryParts = parts.map((p) => {
+          const binaryString = atob(p.payload);
+          const bytes = new Uint8Array(binaryString.length);
+          for (let i = 0; i < binaryString.length; i++) {
+            bytes[i] = binaryString.charCodeAt(i);
+          }
+          return bytes;
+        });
+        const totalLen = binaryParts.reduce((sum, b) => sum + b.length, 0);
+        const merged = new Uint8Array(totalLen);
+        let offset = 0;
+        for (const b of binaryParts) {
+          merged.set(b, offset);
+          offset += b.length;
+        }
+
+        try {
+          const ds = new DecompressionStream('gzip');
+          const writer = ds.writable.getWriter();
+          writer.write(merged);
+          writer.close();
+          const res = new Response(ds.readable);
+          const text = await res.text();
+          return JSON.parse(text);
+        } catch {
+          try {
+            const ds = new DecompressionStream('deflate');
+            const writer = ds.writable.getWriter();
+            writer.write(merged);
+            writer.close();
+            const res = new Response(ds.readable);
+            const text = await res.text();
+            return JSON.parse(text);
+          } catch (err) {
+            log(`Decompression error: ${err}`);
+            return null;
+          }
+        }
+      }
+
+      // Mount & Play rrweb visual replayer
+      function mountReplayer(events) {
+        if (!events || events.length === 0) return;
+
+        // Ensure Meta event (type 4) exists so rrweb computes viewport dimensions and reveals iframe
+        const hasMeta = events.some((e) => e.type === 4);
+        if (!hasMeta) {
+          const firstTs = events[0].timestamp || Date.now();
+          events.unshift({
+            type: 4, // META
+            data: {
+              href: window.location.href,
+              width: 1280,
+              height: 900,
+            },
+            timestamp: firstTs - 1,
+          });
+        }
+
+        // rrweb requires at least 2 events to compute duration and playback
+        if (events.length === 1) {
+          events.push({
+            type: 3, // incremental mutation
+            data: { source: 1, positions: [] },
+            timestamp: events[0].timestamp + 250,
+          });
+        }
+        lastDecodedEvents = JSON.parse(JSON.stringify(events));
+        if (currentReplayer) {
+          try {
+            currentReplayer.destroy();
+          } catch (e) {
+            console.warn('Replayer destroy error:', e);
+          }
+          currentReplayer = null;
+        }
+        playerMount.innerHTML = '';
+
+        currentReplayer = new Replayer(events, {
+          root: playerMount,
+          speed: Number(playerSpeed.value),
+          showWarning: false,
+          mouseTail: true,
+          liveMode: false,
+        });
+
+        // Ensure iframe visibility
+        if (currentReplayer.iframe) {
+          currentReplayer.iframe.style.display = 'inherit';
+        }
+
+        playerBtnPlay.disabled = false;
+        playerBtnPause.disabled = false;
+        playerBtnRestart.disabled = false;
+
+        const totalMs = currentReplayer.getMetaData()?.totalTime || 500;
+        const durationSec = Math.max(0.1, Math.round(totalMs / 100) / 10);
+        playerInfo.textContent = `Ready: ${events.length} events (${durationSec}s)`;
+
+        currentReplayer.on('finish', () => {
+          playerInfo.textContent = `Playback finished (${durationSec}s)`;
+        });
+
+        currentReplayer.play(0);
+        playerInfo.textContent = `Playing (${durationSec}s)...`;
+        document.getElementById('player-card')?.scrollIntoView({ behavior: 'smooth' });
+      }
+
+      playerBtnPlay.onclick = () => {
+        if (currentReplayer) {
+          const totalMs = currentReplayer.getMetaData()?.totalTime || 500;
+          const currentMs = currentReplayer.getCurrentTime();
+          if (currentMs >= totalMs) {
+            currentReplayer.play(0);
+          } else {
+            currentReplayer.play(currentMs);
+          }
+          playerInfo.textContent = 'Playing...';
+        }
+      };
+
+      playerBtnPause.onclick = () => {
+        if (currentReplayer) {
+          currentReplayer.pause();
+          playerInfo.textContent = 'Paused';
+        }
+      };
+
+      playerBtnRestart.onclick = () => {
+        if (currentReplayer) {
+          const totalMs = currentReplayer.getMetaData()?.totalTime || 500;
+          const durationSec = Math.max(0.1, Math.round(totalMs / 100) / 10);
+          playerInfo.textContent = `Restarting (${durationSec}s)...`;
+          currentReplayer.play(0);
+        } else if (lastDecodedEvents) {
+          mountReplayer(JSON.parse(JSON.stringify(lastDecodedEvents)));
+        }
+      };
+
+      playerSpeed.onchange = () => {
+        if (currentReplayer) {
+          currentReplayer.setConfig({ speed: Number(playerSpeed.value) });
+        }
+      };
+
+      // Mock Ingest Server interceptor for /v1/replays/upload
+      const slicesPartsMap = new Map();
+      const origFetch = window.fetch;
+      window.fetch = async function (input, init) {
+        const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
+        if (url.includes('/v1/replays/upload')) {
+          slicesCount++;
+          valSlices.textContent = String(slicesCount);
+          log(`[Ingest] Received replay slice chunk #${slicesCount} (${init?.keepalive ? 'keepalive: true' : 'standard'})`);
+
+          try {
+            const rawBody = typeof init?.body === 'string' ? init.body : new TextDecoder().decode(init?.body);
+            const parsed = JSON.parse(rawBody);
+
+            const sliceId = parsed.manifest.slice_id;
+            const parts = slicesPartsMap.get(sliceId) ?? [];
+            parts.push(parsed);
+            slicesPartsMap.set(sliceId, parts);
+
+            manifestViewer.textContent = JSON.stringify(
+              {
+                chunk_received: slicesCount,
+                keepalive_safe: rawBody.length <= 64 * 1024,
+                raw_body_bytes: rawBody.length,
+                manifest: parsed.manifest,
+                payload_part: `${parsed.part_index + 1} of ${parsed.total_parts}`,
+                payload_preview: typeof parsed.payload === 'string' ? parsed.payload.slice(0, 80) + '... (base64 compressed)' : '[Binary Array]',
+              },
+              null,
+              2
+            );
+
+            if (parts.length === parsed.total_parts) {
+              const events = await decompressSlice(parts);
+              if (events && events.length > 0) {
+                log(`[Ingest] Successfully assembled and decompressed ${events.length} rrweb events! Mounting visual player...`);
+                mountReplayer(events);
+              }
+            }
+          } catch (e) {
+            manifestViewer.textContent = `[Ingest] Upload body parse error: ${e}`;
+          }
+
+          updateStatus('FLASH COMPLETED', 'active');
+          setTimeout(() => updateStatus('RECORDING ACTIVE', 'active'), 2500);
+
+          return new Response(JSON.stringify({ status: 'ok', slice_id: 'slice_' + Date.now() }), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' },
+          });
+        }
+        return origFetch.apply(this, arguments);
+      };
+
+      // Initialize Askdepth and start Replay Engine immediately
+      const demoSessionId = 'sess_' + Math.random().toString(36).slice(2, 9);
+      valConsent.textContent = 'granted';
+      valSession.textContent = demoSessionId;
+      updateStatus('RECORDING ACTIVE', 'active');
+
+      log(`Booting Askdepth SDK v${SDK_VERSION} and activating 45s Ring Buffer recorder...`);
+
+      const replayEngine = createReplayEngine({
+        sessionId: demoSessionId,
+        endpoint: 'https://ingest.example.test/v1/replays/upload',
+        environment: 'development',
+        checkoutEveryNms: 45000,
+      });
+      replayEngine.start();
+      log('Ring buffer recording active (45s window). All keystrokes and moves are being masked.');
+
+      // Consent Handlers
+      document.getElementById('btn-grant').onclick = () => {
+        valConsent.textContent = 'granted';
+        replayEngine.start();
+        updateStatus('RECORDING ACTIVE', 'active');
+        log('Consent granted. Replay recorder active.');
+      };
+
+      document.getElementById('btn-revoke').onclick = () => {
+        replayEngine.stop();
+        valConsent.textContent = 'revoked';
+        updateStatus('IDLE (REVOKED)', 'idle');
+        log('Consent revoked. Ring buffer wiped, recording terminated.');
+      };
+
+      // Manual Flash Button
+      document.getElementById('btn-flash').onclick = async () => {
+        updateStatus('FLASHING REPLAY...', 'flashing');
+        log('⚡ Manual Flash triggered. Slicing buffer & uploading...');
+        try {
+          await replayEngine.flash('manual_inspection_event');
+          log('Manual Flash completed successfully.');
+        } catch (err) {
+          log(`Manual Flash error: ${err}`);
+        }
+      };
+
+      // Heuristic A: Rage Click Simulator
+      document.getElementById('btn-rage').onclick = async () => {
+        rageClicks++;
+        frictionCount++;
+        valFriction.textContent = String(frictionCount);
+        rageCounterEl.textContent = String(rageClicks);
+
+        clearTimeout(rageTimer);
+        rageTimer = setTimeout(() => {
+          rageClicks = 0;
+          rageCounterEl.textContent = '0';
+        }, 1000);
+
+        if (rageClicks >= 3) {
+          updateStatus('RAGE DETECTED! FLASHING', 'flashing');
+          log(`⚠️ RAGE CLICK DETECTED (${rageClicks} rapid clicks)! Automatically flashing session replay...`);
+          rageClicks = 0;
+          rageCounterEl.textContent = '0';
+          try {
+            await replayEngine.flash('rage_click_anomaly');
+          } catch (err) {
+            log(`Rage Flash error: ${err}`);
+          }
+        } else {
+          log(`Click registered on Rage Button (${rageClicks}/3)`);
+        }
+      };
+
+      // Heuristic B: Dead Click Simulator
+      document.getElementById('dead-click-target').onclick = () => {
+        frictionCount++;
+        valFriction.textContent = String(frictionCount);
+        log('Clicked un-actionable element. Simulating dead click anomaly after 800ms...');
+        setTimeout(async () => {
+          updateStatus('DEAD CLICK DETECTED! FLASHING', 'flashing');
+          log('⚠️ DEAD CLICK DETECTED! Automatically flashing session replay...');
+          try {
+            await replayEngine.flash('dead_click_anomaly');
+          } catch (err) {
+            log(`Dead click flash error: ${err}`);
+          }
+        }, 800);
+      };
+
+      // Heuristic C: Error Click Simulator
+      document.getElementById('btn-throw-error').onclick = async () => {
+        log('Simulating runtime error click...');
+        updateStatus('ERROR CLICK! FLASHING', 'flashing');
+        try {
+          await replayEngine.flash('error_click_anomaly');
+        } catch (err) {
+          log(`Error flash error: ${err}`);
+        }
+        setTimeout(() => {
+          throw new Error('Simulated Payment Gateway Network Exception (Askdepth Demo)');
+        }, 10);
+      };
+
+      // SPA Navigation Simulator
+      function simulateNav(path) {
+        window.history.pushState({}, '', path);
+        log(`SPA navigation to ${path}. Throttled FullSnapshot checkpoint taken.`);
+      }
+      document.getElementById('nav-cart').onclick = () => simulateNav('/cart');
+      document.getElementById('nav-checkout').onclick = () => simulateNav('/checkout');
+      document.getElementById('nav-home').onclick = () => simulateNav('/home');
+    </script>
+  </body>
+</html>

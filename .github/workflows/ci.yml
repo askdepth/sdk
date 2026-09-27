@@ -78,20 +78,52 @@ jobs:
             echo "run=true" >> "$GITHUB_OUTPUT"
           else
             echo "run=false" >> "$GITHUB_OUTPUT"
-            echo "Skipping size-limit and Playwright — @askdepth/core not in the affected graph."
+            echo "Skipping core size-limit and Playwright — @askdepth/core not in the affected graph."
+          fi
+
+      - name: Detect @askdepth/replay impact
+        id: replay
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_REF="origin/${{ github.base_ref }}"
+          affected="$(pnpm turbo run build --dry-run=json --filter="...[${BASE_REF}]")"
+          if printf '%s' "$affected" | node -e "
+            const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+            const names = new Set([
+              ...(data.packages ?? []),
+              ...(data.tasks ?? []).map((t) => t.package).filter(Boolean),
+            ]);
+            process.exit(names.has('@askdepth/replay') ? 0 : 1);
+          "; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping replay size-limit and Playwright — @askdepth/replay not in the affected graph."
           fi
 
       - name: Bundle size (@askdepth/core < 10 KB gzip)
         if: steps.core.outputs.run == 'true'
         run: pnpm --filter @askdepth/core size
 
+      - name: Bundle size (@askdepth/replay < 35 KB gzip)
+        if: steps.replay.outputs.run == 'true'
+        run: pnpm --filter @askdepth/replay size
+
       - name: Install Playwright browsers
-        if: steps.core.outputs.run == 'true'
+        if: steps.core.outputs.run == 'true' || steps.replay.outputs.run == 'true'
         run: pnpm --filter @askdepth/core exec playwright install --with-deps chromium firefox webkit
 
       - name: Browser integration tests
         if: steps.core.outputs.run == 'true'
         run: pnpm --filter @askdepth/core test:e2e
+
+      - name: Replay browser tests
+        if: steps.replay.outputs.run == 'true'
+        run: pnpm --filter @askdepth/replay test:e2e
 
       - name: Require changeset
         if: >

@@ -26,16 +26,33 @@
   ],
   "scripts": {
     "build": "tsup",
-    "test": "vitest run",
+    "test": "vitest run --coverage",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "size": "size-limit",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@askdepth/contracts": "workspace:*"
+    "@askdepth/contracts": "workspace:*",
+    "@rrweb/record": "2.1.6",
+    "fflate": "0.8.3"
   },
   "devDependencies": {
+    "@playwright/test": "1.51.0",
+    "@rrweb/replay": "2.1.6",
+    "@size-limit/preset-small-lib": "11.2.0",
+    "@vitest/coverage-v8": "3.2.7",
+    "jsdom": "26.0.0",
+    "size-limit": "11.2.0",
     "tsup": "^8.3.5",
     "typescript": "^5.9.3",
     "vitest": "^3.0.5"
-  }
+  },
+  "size-limit": [
+    {
+      "path": "dist/index.js",
+      "limit": "35 kB",
+      "gzip": true
+    }
+  ]
 }

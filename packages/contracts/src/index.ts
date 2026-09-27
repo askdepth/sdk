@@ -46,6 +46,18 @@ export {
 } from './anomalies/index.js';
 
 export {
+  REPLAY_SLICE_MAX_MS,
+  RRWebEventSchema,
+  CompressionAlgorithmSchema,
+  ReplaySliceManifestSchema,
+  ReplayUploadPayloadSchema,
+  type RRWebEvent,
+  type CompressionAlgorithm,
+  type ReplaySliceManifest,
+  type ReplayUploadPayload,
+} from './replay.js';
+
+export {
   TRACEPARENT_PATTERN,
   TraceparentHeaderSchema,
   TraceparentPartsSchema,

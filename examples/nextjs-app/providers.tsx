@@ -22,6 +22,9 @@ export function AskdepthProvider({ children, writeKey, endpoint }: Props) {
       sampleRate: 1,
       environment:
         process.env.NODE_ENV === 'production' ? 'production' : 'development',
+      // Opt-in Session Replay (45s ring buffer with client-side PII masking).
+      // Dynamically loads `@askdepth/replay` during browser idle or user friction.
+      replay: true,
     }),
     [writeKey, endpoint],
   );
