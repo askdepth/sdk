@@ -160,9 +160,9 @@ test('replays a rage-click slice without leaking masked secrets', async ({ page 
     }
   });
   try {
-    const recorded = page.waitForResponse((response) => response.url().includes('/sdk/record.js'));
+    const replayLoaded = page.waitForResponse((response) => response.url().includes('/sdk/replay.js'));
     await page.goto(origin);
-    await recorded;
+    await replayLoaded;
     await page.locator('#email').fill('ivan@example.com');
     await page.locator('#acc').click();
     await page.evaluate(() => {
@@ -205,9 +205,9 @@ test('keeps the latest full snapshot after several checkpoints', async ({ page }
     }
   });
   try {
-    const recorded = page.waitForResponse((response) => response.url().includes('/sdk/record.js'));
+    const replayLoaded = page.waitForResponse((response) => response.url().includes('/sdk/replay.js'));
     await page.goto(origin);
-    await recorded;
+    await replayLoaded;
     for (let wave = 0; wave < 4; wave += 1) {
       await page.evaluate((index) => {
         const node = document.createElement('p');
@@ -235,9 +235,9 @@ test('recycles the ring buffer without an unbounded heap', async ({ page, browse
   test.skip(browserName !== 'chromium', 'JS heap is measured in Chromium');
   const { server, origin } = await listen(0);
   try {
-    const recorded = page.waitForResponse((response) => response.url().includes('/sdk/record.js'));
+    const replayLoaded = page.waitForResponse((response) => response.url().includes('/sdk/replay.js'));
     await page.goto(origin);
-    await recorded;
+    await replayLoaded;
     const heap = await page.evaluate(async () => {
       const bin = document.getElementById('bin');
       const gc = (window as unknown as { gc?: () => void }).gc;
