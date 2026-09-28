@@ -35,3 +35,11 @@ Starts the local interactive demo:
 ```bash
 pnpm example:vite
 ```
+
+### 5. Preview Production Build
+Serves the production bundle built in step 3:
+```bash
+pnpm example:vite:preview
+# or
+pnpm example:vite:start
+```
