@@ -259,6 +259,38 @@ describe('<AskdepthCatch>', () => {
     const event = sentEvents(fetchMock).find((item) => item.type === 'ERROR_CLICK');
     expect(event?.target_selector).toBe('html:nth-of-type(1) > body:nth-of-type(1) > div:nth-of-type(1)');
   });
+
+  it('renders explicitly empty fallbacks without displaying the default alert UI', () => {
+    const { container, rerender } = render(
+      <AskdepthCatch fallback={null}>
+        <Problematic />
+      </AskdepthCatch>,
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.innerHTML).toBe('');
+
+    rerender(
+      <AskdepthCatch fallback={false}>
+        <Problematic />
+      </AskdepthCatch>,
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    rerender(
+      <AskdepthCatch fallback="">
+        <Problematic />
+      </AskdepthCatch>,
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+
+    rerender(
+      <AskdepthCatch fallback={0}>
+        <Problematic />
+      </AskdepthCatch>,
+    );
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(container.textContent).toBe('0');
+  });
 });
 
 function Problematic(): React.ReactElement {

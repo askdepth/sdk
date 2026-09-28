@@ -9,13 +9,25 @@ export interface AskdepthContextValue {
   getSessionId: () => string | null;
 }
 
-export type AskdepthProviderProps = Omit<AskdepthInitOptions, 'writeKey'> & {
+type BaseProviderProps = Omit<AskdepthInitOptions, 'writeKey'> & {
+  children?: ReactNode;
+};
+
+type ProviderWithWriteKey = BaseProviderProps & {
+  /** Project write key */
+  writeKey: string;
+  /** Alias for writeKey */
+  apiKey?: string;
+};
+
+type ProviderWithApiKey = BaseProviderProps & {
   /** Project write key */
   writeKey?: string;
   /** Alias for writeKey */
-  apiKey?: string;
-  children?: ReactNode;
+  apiKey: string;
 };
+
+export type AskdepthProviderProps = ProviderWithWriteKey | ProviderWithApiKey;
 
 export interface ResolvedComponentLocation {
   componentName: string;

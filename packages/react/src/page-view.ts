@@ -40,30 +40,60 @@ export function startPageViews(): () => void {
 
   if (!restore) {
     const notify = () => {
-      Askdepth.track(PAGE_VIEW_EVENT, { url: currentUrl() });
+      if (activeRefCount > 0) {
+        Askdepth.track(PAGE_VIEW_EVENT, { url: currentUrl() });
+      }
     };
 
     // Emit initial page view on mount
     notify();
 
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
+    const currentPushState = window.history.pushState;
+    const currentReplaceState = window.history.replaceState;
 
-    const wrap =
-      (original: History['pushState']) =>
-      function (this: History, ...args: Parameters<History['pushState']>) {
+    const originalPushState =
+      ((currentPushState as unknown as { __askdepth_original__?: History['pushState'] }).__askdepth_original__) ??
+      currentPushState;
+    const originalReplaceState =
+      ((currentReplaceState as unknown as { __askdepth_original__?: History['replaceState'] }).__askdepth_original__) ??
+      currentReplaceState;
+
+    const isPushWrapped = Boolean(
+      (currentPushState as unknown as { __askdepth_page_view__?: boolean }).__askdepth_page_view__,
+    );
+    const isReplaceWrapped = Boolean(
+      (currentReplaceState as unknown as { __askdepth_page_view__?: boolean }).__askdepth_page_view__,
+    );
+
+    const wrap = (original: History['pushState']) => {
+      const fn = function (this: History, ...args: Parameters<History['pushState']>) {
         const result = original.apply(this, args);
         notify();
         return result;
       };
+      (fn as unknown as { __askdepth_original__: History['pushState']; __askdepth_page_view__: boolean }).__askdepth_original__ = original;
+      (fn as unknown as { __askdepth_page_view__: boolean }).__askdepth_page_view__ = true;
+      return fn;
+    };
 
-    window.history.pushState = wrap(originalPushState);
-    window.history.replaceState = wrap(originalReplaceState);
+    const wrappedPushState = isPushWrapped ? currentPushState : wrap(originalPushState);
+    const wrappedReplaceState = isReplaceWrapped ? currentReplaceState : wrap(originalReplaceState);
+
+    if (!isPushWrapped) {
+      window.history.pushState = wrappedPushState;
+    }
+    if (!isReplaceWrapped) {
+      window.history.replaceState = wrappedReplaceState;
+    }
     window.addEventListener('popstate', notify);
 
     restore = () => {
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
+      if (window.history.pushState === wrappedPushState) {
+        window.history.pushState = originalPushState;
+      }
+      if (window.history.replaceState === wrappedReplaceState) {
+        window.history.replaceState = originalReplaceState;
+      }
       window.removeEventListener('popstate', notify);
       restore = null;
     };
@@ -81,7 +111,17 @@ export function startPageViews(): () => void {
 }
 
 export function resetPageViewsForTests(): void {
+  const currentPush = typeof window !== 'undefined' ? window.history?.pushState : undefined;
+  const currentReplace = typeof window !== 'undefined' ? window.history?.replaceState : undefined;
+  const origPush = (currentPush as unknown as { __askdepth_original__?: History['pushState'] })?.__askdepth_original__;
+  const origReplace = (currentReplace as unknown as { __askdepth_original__?: History['replaceState'] })?.__askdepth_original__;
   restore?.();
+  if (origPush && typeof window !== 'undefined' && window.history) {
+    window.history.pushState = origPush;
+  }
+  if (origReplace && typeof window !== 'undefined' && window.history) {
+    window.history.replaceState = origReplace;
+  }
   activeRefCount = 0;
   restore = null;
 }

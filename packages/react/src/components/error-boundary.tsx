@@ -55,7 +55,7 @@ export class AskdepthCatch extends Component<Props, State> {
     if (this.state.hasError && this.state.error) {
       const { fallback } = this.props;
       if (typeof fallback === 'function') return fallback(this.state.error, this.resetErrorBoundary);
-      if (fallback) return fallback;
+      if (fallback !== undefined) return fallback;
       return (
         <div role="alert" style={{ padding: '16px', border: '1px solid #EF4444', borderRadius: '6px' }}>
           <h2>Something went wrong</h2>

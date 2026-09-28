@@ -136,4 +136,44 @@ describe('React frustration integration', () => {
     expect(caught?.component).toEqual({ name: 'Checkout', stack: ['Checkout'] });
     expect(JSON.stringify(caught)).not.toContain('secret=abc');
   });
+
+  it('preserves common React HOC display names and stacks with parentheses', async () => {
+    const fetchMock = boot();
+    const button = document.createElement('button');
+    document.body.append(button);
+    Askdepth.registerComponentResolver(() => ({
+      componentName: 'Connect(Checkout)',
+      componentStack: ['Connect(Checkout)', 'withRouter(Page)', 'ForwardRef(Button)'],
+      sourceAttr: 'src/Checkout.tsx:10:4',
+      hashId: 'cmp_12345678',
+    }));
+    Askdepth.reportCaughtError(new Error('hoc crash'), button);
+    const caught = (await events(fetchMock)).find((event) => event.type === 'ERROR_CLICK');
+    expect(caught?.component).toEqual({
+      name: 'Connect(Checkout)',
+      stack: ['Connect(Checkout)', 'withRouter(Page)', 'ForwardRef(Button)'],
+      source: 'src/Checkout.tsx:10:4',
+      hash_id: 'cmp_12345678',
+    });
+  });
+
+  it('retains source and hash metadata substituting Anonymous when component name is invalid', async () => {
+    const fetchMock = boot();
+    const button = document.createElement('button');
+    document.body.append(button);
+    Askdepth.registerComponentResolver(() => ({
+      componentName: '<Invalid!Component>',
+      componentStack: [],
+      sourceAttr: 'src/Page.tsx:20:2',
+      hashId: 'cmp_abcdef12',
+    }));
+    Askdepth.reportCaughtError(new Error('invalid name crash'), button);
+    const caught = (await events(fetchMock)).find((event) => event.type === 'ERROR_CLICK');
+    expect(caught?.component).toEqual({
+      name: 'Anonymous',
+      stack: [],
+      source: 'src/Page.tsx:20:2',
+      hash_id: 'cmp_abcdef12',
+    });
+  });
 });

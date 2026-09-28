@@ -311,20 +311,26 @@ function watchRoutes(checkpoint: () => void): () => void {
     lastCheckpoint = nowTime;
     checkpoint();
   };
-  history.pushState = (...args: Parameters<History['pushState']>) => {
+  const wrappedPush = (...args: Parameters<History['pushState']>) => {
     push.apply(history, args);
     safeCheckpoint();
   };
-  history.replaceState = (...args: Parameters<History['replaceState']>) => {
+  const wrappedReplace = (...args: Parameters<History['replaceState']>) => {
     replace.apply(history, args);
     safeCheckpoint();
   };
+  history.pushState = wrappedPush;
+  history.replaceState = wrappedReplace;
   const onRoute = () => safeCheckpoint();
   window.addEventListener('popstate', onRoute);
   window.addEventListener('hashchange', onRoute);
   return () => {
-    history.pushState = push;
-    history.replaceState = replace;
+    if (history.pushState === wrappedPush) {
+      history.pushState = push;
+    }
+    if (history.replaceState === wrappedReplace) {
+      history.replaceState = replace;
+    }
     window.removeEventListener('popstate', onRoute);
     window.removeEventListener('hashchange', onRoute);
   };

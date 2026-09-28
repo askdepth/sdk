@@ -2,10 +2,10 @@ import type { RRWebEvent } from '@askdepth/contracts';
 
 const EMAIL = /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b/g;
 const PHONE = /(?:\+\d{1,3}[\s.-]?)?(?:\(?\d{2,4}\)?[\s.-])\d{2,4}[\s.-]\d{2,4}(?:[\s.-]\d{2,4})?/g;
-const DOCUMENT_LABEL = /\b(?:passport|ssn)\s*[:#-]?\s*[A-Z0-9][A-Z0-9\s-]{4,}\b/gi;
+const DOCUMENT_LABEL = /(?<=^|[^\p{L}\p{N}_])(?:passport|ssn|паспорт)\s*[:#-]?\s*[A-Za-z0-9А-Яа-я][A-Za-z0-9А-Яа-я\s-]{4,}(?=$|[^\p{L}\p{N}_])/giu;
 const DOCUMENT_NUMBER = /\b\d{4}\s\d{6}\b/g;
 const CARD = /(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)/g;
-const CARD_LABEL = /\b(?:card|cc|pan)\s*[:#-]?\s*([0-9][0-9 -]{11,20}[0-9])\b/gi;
+const CARD_LABEL = /(?<=^|[^\p{L}\p{N}_])(?:card|cc|pan|карта)\s*[:#-]?\s*([0-9][0-9 -]{11,20}[0-9])\b/giu;
 const JWT = /\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\b/g;
 const BEARER = /\bBearer\s+[A-Za-z0-9_\-\.=]{16,}\b/gi;
 const API_KEY = /\b(?:api[_-]?key|auth[_-]?token|client[_-]?secret|private[_-]?key)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{16,}['"]?/gi;
@@ -53,7 +53,7 @@ export function maskText(text: string): string {
   }
 
   // Labeled card check: redact numbers with explicit card prefix even if test card or Luhn check fails
-  if (/(?:card|cc|pan)/i.test(result)) {
+  if (/(?:card|cc|pan|карта)/i.test(result)) {
     CARD_LABEL.lastIndex = 0;
     result = result.replace(CARD_LABEL, (match, digits) => {
       const clean = digits.replace(/[ -]/g, '');
@@ -89,7 +89,7 @@ export function maskText(text: string): string {
   }
 
   // Fast pre-check for document keywords
-  if (/(?:passport|ssn)/i.test(result)) {
+  if (/(?:passport|ssn|паспорт)/i.test(result)) {
     result = apply(DOCUMENT_LABEL, result, '[REDACTED_DOCUMENT]');
   }
 

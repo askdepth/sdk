@@ -68,7 +68,7 @@ let configWarned = false;
 const componentResolvers = new Set<{ resolver: ComponentResolver }>();
 
 function safeName(value: string): string | null {
-  return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(value) && value.length <= 120 ? value : null;
+  return /^[A-Za-z_$][A-Za-z0-9_$.() -]*$/.test(value) && value.length <= 120 ? value : null;
 }
 
 function componentOf(target: Element): NonNullable<RageClick['component']> | undefined {
@@ -77,16 +77,19 @@ function componentOf(target: Element): NonNullable<RageClick['component']> | und
   try {
     const location = registration.resolver(target);
     if (!location) return undefined;
-    const name = safeName(location.componentName);
-    if (!name) return undefined;
-    const stack = location.componentStack.slice(0, 8).map(safeName).filter((part): part is string => part !== null);
+    const rawName = safeName(location.componentName);
     const source = location.sourceAttr;
     const hash = location.hashId;
+    const hasSource = Boolean(source && source.length <= 200 && !source.startsWith('/') && !source.split('/').includes('..') && /^[A-Za-z0-9_./:@-]+$/.test(source));
+    const hasHash = Boolean(hash && hash.length <= 64 && /^[A-Za-z0-9_-]+$/.test(hash));
+    const name = rawName ?? (hasSource || hasHash ? 'Anonymous' : null);
+    if (!name) return undefined;
+    const stack = location.componentStack.slice(0, 8).map(safeName).filter((part): part is string => part !== null);
     return {
       name,
       stack,
-      ...(source && source.length <= 200 && !source.startsWith('/') && !source.split('/').includes('..') && /^[A-Za-z0-9_./:@-]+$/.test(source) ? { source } : {}),
-      ...(hash && hash.length <= 64 && /^[A-Za-z0-9_-]+$/.test(hash) ? { hash_id: hash } : {}),
+      ...(hasSource && source ? { source } : {}),
+      ...(hasHash && hash ? { hash_id: hash } : {}),
     };
   } catch {
     return undefined;

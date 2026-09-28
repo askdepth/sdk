@@ -33,10 +33,28 @@ const generate = unwrap(generateModule) as unknown as typeof import('@babel/gene
 
 const JSX_RUNTIME = new Set(['react/jsx-runtime', 'react/jsx-dev-runtime']);
 
-export function shouldTransform(id: string): boolean {
+function containsJsx(code: string): boolean {
+  return (
+    code.includes('jsx-runtime') ||
+    code.includes('jsx-dev-runtime') ||
+    code.includes('react/jsx') ||
+    code.includes('</') ||
+    code.includes('<>') ||
+    /<[A-Za-z_$][\w.-]*(?:\s|>|\/)/.test(code)
+  );
+}
+
+export function shouldTransform(id: string, code?: string): boolean {
   const clean = id.split('?')[0]?.split('#')[0] ?? id;
   if (!clean || clean.includes('\0') || clean.includes('node_modules')) return false;
-  return /\.(tsx|jsx)$/.test(clean);
+  if (/\.(tsx|jsx)$/.test(clean)) return true;
+  if (/\.(js|mjs|cjs)$/.test(clean)) {
+    if (code !== undefined) {
+      return containsJsx(code);
+    }
+    return true;
+  }
+  return false;
 }
 
 export function sourceLabel(filename: string, line: number, column: number): string {
@@ -100,7 +118,7 @@ function numericProp(object: t.ObjectExpression, name: string): number | null {
 }
 
 export function transformJsxSource(code: string, filename: string, options: JsxTransformOptions): JsxTransformResult | null {
-  if (!shouldTransform(filename) && !code.includes('jsx')) return null;
+  if (!shouldTransform(filename, code)) return null;
   let ast: t.File;
   try {
     ast = parse(code, {

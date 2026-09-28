@@ -80,11 +80,31 @@ describe('jsx attribute transform', () => {
     expect(transformJsxSource(local, 'src/local.tsx', { production: false })).toBeNull();
   });
 
+  it('transforms JavaScript (.js) files that contain JSX or compiled JSX', () => {
+    const rawJs = 'export function Page() {\n  return <main><h1>Title</h1></main>;\n}\n';
+    const transformed = transformJsxSource(rawJs, 'src/pages/index.js', { production: false });
+    expect(transformed?.code).toContain('data-askdepth-src="src/pages/index.js:2:10"');
+
+    const compiledJs = [
+      "import { jsx } from 'react/jsx-runtime';",
+      "export const el = jsx('div', { id: 'app' });",
+      '',
+    ].join('\n');
+    const transformedCompiled = transformJsxSource(compiledJs, 'src/components/App.js', { production: false });
+    expect(transformedCompiled?.code).toContain('data-askdepth-src');
+
+    expect(transformJsxSource('export const num = 42;\n', 'src/utils.js', { production: false })).toBeNull();
+  });
+
   it('filters ids', () => {
     expect(shouldTransform('src/App.tsx')).toBe(true);
     expect(shouldTransform('src/App.tsx?t=1#hash')).toBe(true);
     expect(shouldTransform('src/App.ts')).toBe(false);
+    expect(shouldTransform('src/pages/index.js')).toBe(true);
+    expect(shouldTransform('src/pages/index.js', 'export const x = 1;')).toBe(false);
+    expect(shouldTransform('src/pages/index.js', 'export const x = <div />;')).toBe(true);
     expect(shouldTransform('/repo/node_modules/pkg/App.tsx')).toBe(false);
+    expect(shouldTransform('/repo/node_modules/pkg/App.js')).toBe(false);
     expect(shouldTransform('\0virtual.tsx')).toBe(false);
     expect(sourceLabel('src\\Button.tsx', 1, 1)).toBe('src/Button.tsx:1:1');
   });

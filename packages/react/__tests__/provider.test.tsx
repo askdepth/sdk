@@ -256,4 +256,61 @@ describe('<AskdepthProvider>', () => {
     unmount();
     expect(window.history.pushState).toBe(origPush);
   });
+
+  it('avoids clobbering external history wrappers and accumulating duplicate page views across reconfigurations', () => {
+    const origPush = window.history.pushState;
+    const trackSpy = vi.spyOn(Askdepth, 'track');
+
+    const { rerender, unmount } = render(
+      <AskdepthProvider {...granted()} endpoint="https://ingest.test/v1">
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+
+    const firstWrapper = window.history.pushState;
+
+    // Simulate replay wrapper sitting above page-view's wrapper
+    const replayPush = function (this: History, ...args: Parameters<History['pushState']>) {
+      return firstWrapper.apply(this, args);
+    };
+    window.history.pushState = replayPush;
+
+    // When replay is stopped during reconfiguration, replay restores its captured pushState
+    const origInit = Askdepth.init;
+    let replayRestored = false;
+    vi.spyOn(Askdepth, 'init').mockImplementation((opts) => {
+      origInit(opts);
+      if (!replayRestored) {
+        replayRestored = true;
+        // In real execution, replay's removeRoute restores firstWrapper
+        if (window.history.pushState === replayPush) {
+          window.history.pushState = firstWrapper;
+        }
+      }
+    });
+
+    // Reconfigure provider options multiple times
+    rerender(
+      <AskdepthProvider {...granted()} endpoint="https://ingest.test/v2">
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+    rerender(
+      <AskdepthProvider {...granted()} endpoint="https://ingest.test/v3">
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+
+    trackSpy.mockClear();
+
+    // Trigger pushState navigation
+    window.history.pushState({}, '', '/dashboard');
+
+    // Should only emit exactly 1 page view event, never duplicate
+    const pageViews = trackSpy.mock.calls.filter(([event]) => event === 'page_view');
+    expect(pageViews.length).toBe(1);
+
+    unmount();
+    expect(window.history.pushState).toBe(origPush);
+  });
 });

@@ -47,8 +47,14 @@ describe('privacy masking', () => {
   it('redacts phone numbers and passport numbers', () => {
     expect(maskText('call +1 415 555 2671 now')).toContain('[REDACTED_PHONE]');
     expect(maskText('call +1 415 555 2671 now')).not.toContain('415');
+    expect(maskText('паспорт 4510 123456')).toContain('[REDACTED_DOCUMENT]');
+    expect(maskText('паспорт AB1234567')).toContain('[REDACTED_DOCUMENT]');
     expect(maskText('passport 4510 123456')).toContain('[REDACTED_DOCUMENT]');
     expect(maskText('4510 123456')).toBe('[REDACTED_DOCUMENT]');
+  });
+
+  it('redacts Cyrillic card labels even without Luhn check', () => {
+    expect(maskText('карта: 4111 2222 3333 4444')).toContain('[REDACTED_CARD]');
   });
 
   it('leaves short harmless text unchanged', () => {
