@@ -47,7 +47,7 @@ describe('privacy masking', () => {
   it('redacts phone numbers and passport numbers', () => {
     expect(maskText('call +1 415 555 2671 now')).toContain('[REDACTED_PHONE]');
     expect(maskText('call +1 415 555 2671 now')).not.toContain('415');
-    expect(maskText('паспорт 4510 123456')).toContain('[REDACTED_DOCUMENT]');
+    expect(maskText('passport 4510 123456')).toContain('[REDACTED_DOCUMENT]');
     expect(maskText('4510 123456')).toBe('[REDACTED_DOCUMENT]');
   });
 

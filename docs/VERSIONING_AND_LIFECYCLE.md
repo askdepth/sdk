@@ -68,21 +68,21 @@ When `@askdepth/<pkg>@N+1.0.0` is published, a lifecycle clock starts for major 
 
 ## Wire Protocol vs. Package Version
 
-Askdepth separates two version axes on every batch:
+Askdepth tracks two separate version axes on every batch. Their initial values can match without tying future releases together:
 
 | Field / Header | Meaning |
 |---|---|
-| `protocol_version` / `x-askdepth-protocol-version` | Integer identifying the **wire schema** (envelope shape, field semantics). Currently frozen at **`1`**. |
+| `protocol_version` / `x-askdepth-protocol-version` | SemVer string identifying the **wire schema** (envelope shape, field semantics). The initial unpublished protocol is **`0.1.0`**. |
 | `sdk_version` / `x-askdepth-sdk-version` | Exact **SemVer** of the npm artifact that produced the batch (e.g. `1.4.2`). |
 | `sdk_name` / `x-askdepth-sdk-name` | Package identity (e.g. `@askdepth/core`). |
 
 ### How the server handles compatibility
 
-1. **Protocol negotiation** — Ingest reads `protocol_version` first. Unknown future protocols are rejected with a clear error; known older protocols are decoded by a dedicated parser path when multiple protocol majors coexist.
-2. **Package EOL** — Ingest matches `sdk_name` + major segment of `sdk_version` against the lifecycle table. Protocol may still be `1` while the package major is sunset — EOL is driven by **package major age since N+1**, not by protocol alone.
+1. **Protocol negotiation** — Ingest accepts the exact protocol versions it implements and returns `410 Gone` for unsupported versions. Add a dedicated parser path before supporting multiple wire formats concurrently.
+2. **Package EOL** — Ingest matches `sdk_name` + major segment of `sdk_version` against the lifecycle table. Protocol and package versions remain independent even though both may currently read `0.1.0`.
 3. **Contracts package** — `@askdepth/contracts` exports `PROTOCOL_VERSION`, `SDKVersion`, and `TelemetryEnvelopeHeader` so both client SDKs and server validators share one source of truth.
 
-A protocol major bump (e.g. `1` → `2`) is itself a breaking change and ships as a **Major** of `@askdepth/contracts` and every runtime package that speaks the new wire format.
+While the wire protocol is pre-1.0, an incompatible change increments its minor version (for example `0.1.0` → `0.2.0`) and ships with compatible runtime package updates. Once the protocol reaches `1.0.0`, incompatible changes increment its major version. The npm package version is managed independently.
 
 ---
 

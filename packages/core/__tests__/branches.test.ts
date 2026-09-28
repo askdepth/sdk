@@ -27,7 +27,7 @@ describe('supporting branches', () => {
     const host = document.createElement('div');
     host.append(document.createTextNode('x'));
     document.body.append(node, host);
-    expect(cssPath(node)).toContain('submit-btn');
+    expect(cssPath(node)).toBe('html:nth-of-type(1) > body:nth-of-type(1) > button:nth-of-type(1)');
     expect(asElement(host.firstChild)).toBe(host);
     expect(asElement(null)).toBeNull();
     expect(newTraceId()).toMatch(/^[0-9a-f]{32}$/);
@@ -36,6 +36,7 @@ describe('supporting branches', () => {
     expect(sanitizeUrl('https://ex.test/a?token=1')).toBe('https://ex.test/a');
     expect(sanitizeStack('at onClick (http://localhost:3000/app.js?token=xyz:42:15)')).toContain(':42:15');
     expect(sanitizeStack('at onClick (http://localhost:3000/app.js?token=xyz:42:15)')).not.toContain('token');
+    expect(sanitizeStack('Error: private\n at Checkout (https://host.test/users/alice/private.js?token=secret:42:15)')).toBe('at Checkout:42:15');
     expect(shouldKillResponse(200, new Headers({ 'x-askdepth-kill': 'true' }), null)).toBe(true);
     expect(shouldKillResponse(200, new Headers(), { kill: true })).toBe(true);
     expect(shouldKillResponse(200, new Headers(), { ok: true })).toBe(false);
@@ -167,7 +168,8 @@ describe('supporting branches', () => {
     Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
     document.dispatchEvent(new Event('visibilitychange'));
     window.dispatchEvent(new Event('pagehide'));
-    expect(beacon).toHaveBeenCalled();
+    // sendBeacon cannot attach the write-key authorization header; page-close delivery uses fetch keepalive.
+    expect(beacon).not.toHaveBeenCalled();
     expect(pushRageClick).toBeTypeOf('function');
   });
 
@@ -193,7 +195,7 @@ describe('supporting branches', () => {
       consent: 'granted',
       sampleRate: 1,
     });
-    expect(warn.mock.calls.some((call) => String(call[0]).includes('UUID'))).toBe(true);
+    expect(warn.mock.calls.some((call) => String(call[0]).includes('UUID'))).toBe(false);
 
     const button = document.createElement('button');
     document.body.append(button);

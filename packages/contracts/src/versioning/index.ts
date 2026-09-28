@@ -13,12 +13,14 @@ export {
 
 export {
   EnvironmentSchema,
+  TelemetryEventEnvelopeSchema,
   TelemetryEnvelopeSchema,
   TelemetryEnvelopeHeaderSchema,
   parseTelemetryEnvelope,
   isTelemetryEnvelope,
   createTelemetryEnvelope,
   type Environment,
+  type TelemetryEventEnvelope,
   type TelemetryEnvelope,
   type TelemetryEnvelopeHeader,
 } from './envelope.js';

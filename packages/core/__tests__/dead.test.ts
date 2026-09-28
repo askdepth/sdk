@@ -45,7 +45,7 @@ describe('dead clicks', () => {
   it('emits DEAD_CLICK when a button does nothing for 800ms', async () => {
     const fetchMock = boot();
     const button = document.createElement('button');
-    button.textContent = 'Оплатить';
+    button.textContent = 'Pay';
     document.body.append(button);
     button.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     await vi.advanceTimersByTimeAsync(800);
@@ -95,7 +95,7 @@ describe('dead clicks', () => {
     const fetchMock = boot();
     const button = document.createElement('button');
     const span = document.createElement('span');
-    span.textContent = 'Оплатить';
+    span.textContent = 'Pay';
     button.append(span);
     document.body.append(button);
     span.dispatchEvent(new MouseEvent('click', { bubbles: true }));

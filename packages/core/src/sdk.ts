@@ -3,20 +3,32 @@ import { publishAnomaly } from './anomaly-bus.js';
 import { isBrowser } from './browser.js';
 import { armDeadClick } from './dead.js';
 import {
+  caughtReactError,
   correlateJsError,
   noteClick,
   resetErrors,
   type ErrorClick,
 } from './errors.js';
-import { asProjectId, newSessionId, newTraceId } from './ids.js';
+import { newSessionId, newTraceId } from './ids.js';
 import { armReplay, noteFriction, stopReplay } from './replay-loader.js';
 import { isRapidAllowed, pushRageClick, resetRage, type ClickRecord, type RageClick } from './rage.js';
 import { asElement, cssPath } from './selector.js';
 import { currentTraceparent, installTrace, uninstallTrace } from './trace.js';
 import { createQueue, type Queue } from './transport.js';
+import { sanitizeCustomProperties } from './custom-properties.js';
 import type { DeadClick } from './dead.js';
 
 export type ConsentState = 'granted' | 'denied' | 'unknown';
+
+/** Static source/component identifiers only. Never pass props, DOM text, or user data. */
+export interface ComponentLocation {
+  componentName: string;
+  componentStack: string[];
+  sourceAttr?: string;
+  hashId?: string;
+}
+
+export type ComponentResolver = (target: Element) => ComponentLocation | null;
 
 export interface AskdepthInitOptions {
   writeKey: string;
@@ -25,6 +37,7 @@ export interface AskdepthInitOptions {
   sampleRate?: number;
   allowRapidClickSelectors?: string[];
   allowedTracingOrigins?: string[];
+  /** Deprecated client metadata. Ingest derives project ownership from writeKey. */
   projectId?: string;
   environment?: 'production' | 'staging' | 'development';
   /** Opt-in session replay. `true` loads `@askdepth/replay` on idle; an object can override the upload URL. */
@@ -52,6 +65,33 @@ let runtime: Runtime | null = null;
 let terminated = false;
 let warned = false;
 let configWarned = false;
+const componentResolvers = new Set<{ resolver: ComponentResolver }>();
+
+function safeName(value: string): string | null {
+  return /^[A-Za-z_$][A-Za-z0-9_$.-]*$/.test(value) && value.length <= 120 ? value : null;
+}
+
+function componentOf(target: Element): NonNullable<RageClick['component']> | undefined {
+  const registration = [...componentResolvers].at(-1);
+  if (!registration) return undefined;
+  try {
+    const location = registration.resolver(target);
+    if (!location) return undefined;
+    const name = safeName(location.componentName);
+    if (!name) return undefined;
+    const stack = location.componentStack.slice(0, 8).map(safeName).filter((part): part is string => part !== null);
+    const source = location.sourceAttr;
+    const hash = location.hashId;
+    return {
+      name,
+      stack,
+      ...(source && source.length <= 200 && !source.startsWith('/') && !source.split('/').includes('..') && /^[A-Za-z0-9_./:@-]+$/.test(source) ? { source } : {}),
+      ...(hash && hash.length <= 64 && /^[A-Za-z0-9_-]+$/.test(hash) ? { hash_id: hash } : {}),
+    };
+  } catch {
+    return undefined;
+  }
+}
 
 function warnOnce(message: string): void {
   if (configWarned) return;
@@ -123,7 +163,10 @@ function recordRage(el: Element, x: number, y: number, time: number): void {
     tag: el.tagName,
   };
   const rage = pushRageClick(rec);
-  if (rage) emit(rage, true);
+  if (rage) {
+    const component = componentOf(el);
+    emit(component ? { ...rage, component } : rage, true);
+  }
 }
 
 export function onPointerDown(event: PointerEvent): void {
@@ -156,7 +199,10 @@ function onClick(event: MouseEvent): void {
   if (!el) return;
   const selector = cssPath(el);
   noteClick({ selector, time: Date.now() });
-  const stop = armDeadClick(el, (dead) => emit(dead, false));
+  const stop = armDeadClick(el, (dead) => {
+    const component = componentOf(el);
+    emit(component ? { ...dead, component } : dead, false);
+  });
   runtime.deadStops.push(stop);
   while (runtime.deadStops.length > 3) runtime.deadStops.shift()?.();
 }
@@ -192,6 +238,7 @@ function start(rt: Runtime): void {
       sessionId: rt.sessionId,
       environment: rt.options.environment ?? 'production',
       endpoint: rt.replayEndpoint,
+      writeKey: rt.options.writeKey,
       ...(rt.checkoutEveryNms !== undefined ? { checkoutEveryNms: rt.checkoutEveryNms } : {}),
     });
   }
@@ -263,16 +310,11 @@ function kill(): void {
 function boot(options: AskdepthInitOptions): void {
   const consent = options.consent ?? 'unknown';
   const sampleRate = options.sampleRate ?? 1;
-  if (!asProjectId(options.projectId ?? options.writeKey)) {
-    warnOnce('[Askdepth SDK] projectId must be a UUID or CUID. Network delivery is disabled.');
-  }
   const queue = createQueue({
     meta: () => {
       if (!runtime?.sessionId || runtime.consent !== 'granted') return null;
-      const projectId = asProjectId(options.projectId ?? options.writeKey);
-      if (!projectId || !options.endpoint) return null;
+      if (!options.endpoint) return null;
       return {
-        projectId,
         environment: options.environment ?? 'production',
         sessionId: runtime.sessionId,
         endpoint: options.endpoint,
@@ -331,17 +373,36 @@ export function revokeConsent(): void {
 }
 
 export function track(name: string, properties?: Record<string, unknown>): void {
-  if (!canCollect() || !name) return;
+  const eventName = name.trim().slice(0, 200);
+  if (!canCollect() || !eventName) return;
+  const sanitized = properties && sanitizeCustomProperties(properties);
   runtime?.queue.enqueue(
-    properties === undefined ? { type: 'track', name } : { type: 'track', name, properties },
+    sanitized === undefined ? { type: 'track', name: eventName } : { type: 'track', name: eventName, properties: sanitized },
     false,
   );
 }
 
+/** Register a component resolver for frustration events. Unsubscribe on provider unmount. */
+export function registerComponentResolver(resolver: ComponentResolver): () => void {
+  const registration = { resolver };
+  componentResolvers.add(registration);
+  return () => { componentResolvers.delete(registration); };
+}
+
+/** Publish a caught React exception through the anomaly and replay pipeline. */
+export function reportCaughtError(error: Error, target?: Element | null, componentStack?: string): void {
+  if (!canCollect()) return;
+  const event = caughtReactError(error, Date.now(), componentStack);
+  const component = target ? componentOf(target) : undefined;
+  emit(component ? { ...event, component } : event, true);
+}
+
 export function identify(userId: string, traits?: Record<string, unknown>): void {
-  if (!canCollect() || !userId) return;
+  const safeUserId = userId.trim().slice(0, 200);
+  if (!canCollect() || !safeUserId) return;
+  const sanitized = traits && sanitizeCustomProperties(traits);
   runtime?.queue.enqueue(
-    traits === undefined ? { type: 'identify', user_id: userId } : { type: 'identify', user_id: userId, traits },
+    sanitized === undefined ? { type: 'identify', user_id: safeUserId } : { type: 'identify', user_id: safeUserId, traits: sanitized },
     false,
   );
 }
@@ -351,16 +412,30 @@ export function getTraceparent(): string | null {
   return currentTraceparent();
 }
 
+export function getSessionId(): string | null {
+  if (!isBrowser() || terminated || !runtime) return null;
+  return runtime.sessionId;
+}
+
+export function isInitialized(): boolean {
+  return Boolean(isBrowser() && !terminated && runtime?.listening);
+}
+
 export const Askdepth = {
   init,
   setConsent,
   revokeConsent,
   track,
+  registerComponentResolver,
+  reportCaughtError,
   identify,
   getTraceparent,
+  getSessionId,
+  isInitialized,
 };
 
 export function resetSdkForTests(): void {
+  componentResolvers.clear();
   terminated = false;
   warned = false;
   configWarned = false;

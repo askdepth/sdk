@@ -4,6 +4,16 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 const SDK = readFileSync(new URL('../dist/index.mjs', import.meta.url), 'utf8');
+const PROTOCOL_VERSION_MODULE = readFileSync(
+  new URL('../../contracts/dist/versioning/protocol-version.js', import.meta.url),
+  'utf8',
+);
+const PROTOCOL_VERSION_CHUNK_FILE = PROTOCOL_VERSION_MODULE.match(/from ['"]\.\.\/([^'"]+\.js)['"]/)?.[1];
+if (!PROTOCOL_VERSION_CHUNK_FILE) throw new Error('Could not resolve the contracts protocol-version chunk');
+const CONTRACTS_VERSION_CHUNK = readFileSync(
+  new URL(`../../contracts/dist/${PROTOCOL_VERSION_CHUNK_FILE}`, import.meta.url),
+  'utf8',
+);
 const TRACEPARENT = /^00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$/;
 
 function listen(): Promise<{ server: Server; origin: string }> {
@@ -14,6 +24,16 @@ function listen(): Promise<{ server: Server; origin: string }> {
       res.end(SDK);
       return;
     }
+    if (req.url === '/sdk/contracts/versioning/protocol-version.js') {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(PROTOCOL_VERSION_MODULE);
+      return;
+    }
+    if (req.url === `/sdk/contracts/${PROTOCOL_VERSION_CHUNK_FILE}`) {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(CONTRACTS_VERSION_CHUNK);
+      return;
+    }
     if (req.url?.startsWith('/api/')) {
       const header = req.headers.traceparent;
       if (typeof header === 'string') seen.push(header);
@@ -22,6 +42,7 @@ function listen(): Promise<{ server: Server; origin: string }> {
     }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.end(`<!doctype html>
+      <script type="importmap">{"imports":{"@askdepth/contracts/protocol-version":"/sdk/contracts/versioning/protocol-version.js"}}</script>
       <script type="module">
         import { Askdepth } from '/sdk/index.mjs';
         Askdepth.init({
@@ -60,6 +81,9 @@ test('injects a valid traceparent on fetch and XHR', async ({ page }) => {
     expect(seen.length).toBeGreaterThanOrEqual(2);
     for (const header of seen) expect(header).toMatch(TRACEPARENT);
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    await new Promise<void>((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections();
+    });
   }
 });
