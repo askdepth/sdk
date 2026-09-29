@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComponentLocationSchema } from './component-location.js';
 
 export const ComputedStylesSchema = z.object({
   cursor: z.string(),
@@ -13,6 +14,7 @@ export const DeadClickEventSchema = z.object({
   computed_styles: ComputedStylesSchema,
   observed_duration_ms: z.literal(800),
   is_interactive_element: z.boolean(),
+  component: ComponentLocationSchema.optional(),
 });
 
 export type ComputedStyles = z.infer<typeof ComputedStylesSchema>;

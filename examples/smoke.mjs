@@ -33,7 +33,7 @@ const runtime =
       : `Node ${process.version}`;
 
 assert(typeof window === 'undefined', 'expected no window in this smoke');
-assert(PROTOCOL_VERSION === 1, `protocol_version ${PROTOCOL_VERSION}`);
+assert(PROTOCOL_VERSION === '0.1.0', `protocol_version ${PROTOCOL_VERSION}`);
 assert(SDK_NAME === '@askdepth/core', `sdk_name ${SDK_NAME}`);
 assert(typeof SDK_VERSION === 'string' && SDK_VERSION.length > 0, 'sdk_version');
 assert(REPLAY_WINDOW_MS === 45_000, `replay_window_ms ${REPLAY_WINDOW_MS}`);

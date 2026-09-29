@@ -9,6 +9,8 @@ describe('SSR no-op', () => {
     expect(typeof window).toBe('undefined');
     expect(() => Askdepth.init({ writeKey: 'test' })).not.toThrow();
     expect(Askdepth.getTraceparent()).toBeNull();
+    expect(Askdepth.getSessionId()).toBeNull();
+    expect(Askdepth.isInitialized()).toBe(false);
     expect(() => {
       Askdepth.track('page');
       Askdepth.identify('user');

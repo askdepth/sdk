@@ -18,7 +18,12 @@
     "size-limit": "size-limit",
     "changeset": "changeset",
     "version-packages": "changeset version",
-    "release": "turbo run build && changeset publish"
+    "release": "turbo run build && changeset publish",
+    "example:vite": "pnpm --filter @askdepth/core exec vite --config ../../examples/react-vite/vite.config.ts",
+    "example:vite:build": "pnpm --filter @askdepth/core exec vite build --config ../../examples/react-vite/vite.config.ts",
+    "example:vite:preview": "pnpm --filter @askdepth/core exec vite preview --config ../../examples/react-vite/vite.config.ts",
+    "example:vite:start": "pnpm --filter @askdepth/core exec vite preview --config ../../examples/react-vite/vite.config.ts",
+    "example:vite:verify": "./node_modules/.pnpm/node_modules/.bin/vite-node --config examples/react-vite/vite.config.ts examples/react-vite/verify.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.28.1",

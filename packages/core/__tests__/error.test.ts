@@ -44,8 +44,8 @@ describe('error clicks', () => {
     const events = payloads.flatMap((body: { events: Array<Record<string, unknown>> }) => body.events);
     const match = events.find((event) => event.type === 'ERROR_CLICK' && event.error_type === 'js_exception');
     expect(match).toBeTruthy();
-    expect(String(match?.target_selector)).toContain('submit-btn');
-    expect((match?.error_details as { message: string }).message).toBe('API fail');
+    expect(match?.target_selector).toBe('html:nth-of-type(1) > body:nth-of-type(1) > button:nth-of-type(1)');
+    expect((match?.error_details as { message: string }).message).toBe('JavaScript error');
     expect(match?.time_to_error_ms).toBe(100);
   });
 

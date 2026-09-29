@@ -1,8 +1,7 @@
 {
   "name": "@askdepth/react",
   "version": "0.0.1",
-  "description": "Askdepth React 19 / Next.js provider and AST compiler plugin.",
-  "private": true,
+  "description": "Askdepth React adapter — provider, fiber component mapping, and a compiler plugin.",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -12,35 +11,87 @@
   "type": "module",
   "sideEffects": false,
   "main": "./dist/index.cjs",
-  "module": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
-      "import": "./dist/index.js",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.cjs"
+    },
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "import": "./dist/plugin/index.mjs",
+      "require": "./dist/plugin/index.cjs"
+    },
+    "./turbopack-loader": {
+      "types": "./dist/turbopack-loader.d.ts",
+      "import": "./dist/turbopack-loader.mjs",
+      "require": "./dist/turbopack-loader.cjs",
+      "default": "./dist/turbopack-loader.cjs"
     }
   },
   "files": [
     "dist"
   ],
   "scripts": {
-    "build": "tsup",
-    "test": "vitest run",
+    "build": "rm -rf dist && tsup",
+    "test": "vitest run --coverage",
     "lint": "tsc --noEmit",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "size": "size-limit"
   },
   "dependencies": {
-    "@askdepth/core": "workspace:*"
+    "@askdepth/core": "workspace:*",
+    "@babel/generator": "^7.28.0",
+    "@babel/parser": "^7.28.0",
+    "@babel/traverse": "^7.28.0",
+    "@babel/types": "^7.28.0",
+    "unplugin": "^2.2.0"
   },
   "peerDependencies": {
-    "react": "^19.0.0"
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@size-limit/preset-small-lib": "^11.2.0",
+    "@testing-library/react": "^16.2.0",
+    "@types/babel__generator": "^7.27.0",
+    "@types/babel__traverse": "^7.28.0",
+    "@types/node": "^22.10.2",
     "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitest/coverage-v8": "^3.0.5",
+    "jsdom": "^26.0.0",
     "react": "^19.0.0",
+    "react-dom": "^19.0.0",
+    "size-limit": "^11.2.0",
     "tsup": "^8.3.5",
     "typescript": "^5.9.3",
     "vitest": "^3.0.5"
-  }
+  },
+  "size-limit": [
+    {
+      "path": "dist/index.mjs",
+      "limit": "4.8 kB",
+      "gzip": true,
+      "ignore": [
+        "@askdepth/core",
+        "react",
+        "react/jsx-runtime",
+        "react-dom"
+      ]
+    },
+    {
+      "path": "dist/index.cjs",
+      "limit": "5.2 kB",
+      "gzip": true,
+      "ignore": [
+        "@askdepth/core",
+        "react",
+        "react/jsx-runtime",
+        "react-dom"
+      ]
+    }
+  ]
 }

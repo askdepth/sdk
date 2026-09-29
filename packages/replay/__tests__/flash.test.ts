@@ -6,6 +6,7 @@ import type { RRWebEvent } from '../src/index.js';
 
 const base = {
   sessionId: '550e8400-e29b-41d4-a716-446655440000',
+  writeKey: 'pk_test_123',
   environment: 'test',
   endpoint: 'https://collector.test/v1/replays/upload',
   now: () => 20_000,
@@ -41,10 +42,18 @@ describe('flash assembly', () => {
     expect(init.method).toBe('POST');
     expect(init.keepalive).toBe(true);
     expect(String(fetchImpl.mock.calls[0]![0])).toBe('https://collector.test/v1/replays/upload');
-    const body = JSON.parse(String(init.body)) as { part_index: number; total_parts: number; payload: string };
-    expect(body.part_index).toBe(0);
-    expect(body.total_parts).toBe(1);
-    expect(body.payload.length).toBeGreaterThan(10);
+    expect(init.headers).toMatchObject({
+      'content-type': 'application/octet-stream',
+      'x-askdepth-protocol-version': '0.1.0',
+      'x-askdepth-write-key': 'pk_test_123',
+      'x-askdepth-session-id': base.sessionId,
+      'x-askdepth-slice-id': payload.manifest.slice_id,
+      'x-askdepth-chunk-index': '0',
+      'x-askdepth-total-chunks': '1',
+    });
+    expect(init.body).toBeInstanceOf(Uint8Array);
+    expect((init.body as Uint8Array).byteLength).toBe(payload.payload.length);
+    expect(Array.from(init.body as Uint8Array)).toEqual(Array.from(payload.payload as Uint8Array));
   });
 
   it('splits a compressed blob larger than 500KB into ordered parts', async () => {
@@ -60,6 +69,36 @@ describe('flash assembly', () => {
     expect(new Set(payloads.map((payload) => payload.total_parts))).toEqual(new Set([2]));
     expect(new Set(payloads.map((payload) => payload.manifest.slice_id)).size).toBe(1);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+    expect(fetchImpl.mock.calls.map((call) => (call[1] as RequestInit).body).every((body) => body instanceof Uint8Array)).toBe(true);
+  });
+
+  it('uploads chunks sequentially and stops without retrying on a permanent client error', async () => {
+    const { postReplay } = await import('../src/upload.js');
+    const fetchMock = vi.fn(async () => new Response('forbidden', { status: 403 }));
+    const payload = {
+      manifest: {
+        slice_id: '550e8400-e29b-41d4-a716-446655440000', triggering_anomaly_id: 'err_1',
+        session_id: base.sessionId, environment: 'test', start_timestamp: 1_000, trigger_timestamp: 2_000,
+        duration_ms: 1_000, has_baseline_snapshot: true, events_count: 1, uncompressed_byte_size: 100,
+        compressed_byte_size: 3, compression_algorithm: 'gzip' as const,
+      },
+      payload: new Uint8Array([1, 2, 3]), part_index: 0, total_parts: 1,
+    };
+    await expect(postReplay('https://collector.test/upload', payload, base.writeKey, fetchMock as unknown as typeof fetch))
+      .rejects.toThrow('Replay upload rejected with status 403');
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not upload compressed slices over the ingest size limit', async () => {
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 204 }));
+    const engine = createReplayEngine({
+      ...base,
+      fetchImpl,
+      compress: async () => ({ bytes: new Uint8Array(4 * 1024 * 1024 + 1), algorithm: 'gzip' as const }),
+    });
+    engine.push(snapshot(10_000));
+    await expect(engine.flash('anom_123', 20_000)).resolves.toEqual([]);
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it('keeps synchronous mutation work inside an 8ms budget', () => {
@@ -115,8 +154,10 @@ describe('flash assembly', () => {
   it('retries on server error in postReplay', async () => {
     const { postReplay } = await import('../src/upload.js');
     let callCount = 0;
+    const requests: RequestInit[] = [];
     const fetchMock = vi.fn(async () => {
       callCount++;
+      requests.push(fetchMock.mock.calls[callCount - 1]![1] as RequestInit);
       if (callCount === 1) {
         return new Response('Server Error', { status: 500 });
       }
@@ -143,8 +184,10 @@ describe('flash assembly', () => {
       total_parts: 1,
     };
 
-    await postReplay('https://collector.test/upload', dummyPayload, fetchMock as unknown as typeof fetch);
+    await postReplay('https://collector.test/upload', dummyPayload, 'pk_test_123', fetchMock as unknown as typeof fetch);
     expect(callCount).toBe(2);
+    expect(requests[0]?.headers).toEqual(requests[1]?.headers);
+    expect(Array.from(requests[0]?.body as Uint8Array)).toEqual(Array.from(requests[1]?.body as Uint8Array));
   });
 
   it('throws an error when all retries are exhausted on 5xx responses', async () => {
@@ -171,9 +214,8 @@ describe('flash assembly', () => {
     };
 
     await expect(
-      postReplay('https://collector.test/upload', dummyPayload, fetchMock as unknown as typeof fetch),
+      postReplay('https://collector.test/upload', dummyPayload, 'pk_test_123', fetchMock as unknown as typeof fetch),
     ).rejects.toThrow('Upload failed with status 502');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
 });
-

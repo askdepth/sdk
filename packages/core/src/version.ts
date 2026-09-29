@@ -1,5 +1,7 @@
+import { PROTOCOL_VERSION as CONTRACT_PROTOCOL_VERSION } from '@askdepth/contracts/protocol-version';
+
 export const SDK_NAME = '@askdepth/core';
-export const PROTOCOL_VERSION = 1 as const;
+export const PROTOCOL_VERSION = CONTRACT_PROTOCOL_VERSION;
 
 declare const __ASKDEPTH_SDK_VERSION__: string | undefined;
 

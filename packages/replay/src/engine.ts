@@ -8,6 +8,8 @@ import {
   FRAME_BUDGET_MS,
   FULL_SNAPSHOT,
   INCREMENTAL_SNAPSHOT,
+  MAX_REPLAY_BYTES,
+  MAX_REPLAY_CHUNKS,
   REPLAY_WINDOW_MS,
   SOURCE_MOUSE_MOVE,
   SOURCE_MUTATION,
@@ -28,6 +30,7 @@ export interface RecorderHandle {
 
 export interface ReplayEngineConfig {
   sessionId: string;
+  writeKey: string;
   environment: string;
   endpoint: string;
   windowMs?: number;
@@ -219,7 +222,9 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
           const json = JSON.stringify(events);
           const raw = encodeText(json);
           const compressed = await compress(raw);
+          if (compressed.bytes.byteLength > MAX_REPLAY_BYTES) return [];
           const parts = splitBytes(compressed.bytes, CHUNK_BYTES);
+          if (parts.length > MAX_REPLAY_CHUNKS) return [];
 
           const payloads: ReplayUploadPayload[] = parts.map((part, index) => {
             const bytes = new Uint8Array(new ArrayBuffer(part.byteLength));
@@ -246,15 +251,15 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
             };
           });
 
-          await Promise.all(
-            payloads.map(async (payload) => {
-              try {
-                await postReplay(config.endpoint, payload, fetchImpl);
-              } catch (err) {
-                console.warn('[Askdepth] Failed to upload replay slice', err);
-              }
-            }),
-          );
+          for (const payload of payloads) {
+            try {
+              await postReplay(config.endpoint, payload, config.writeKey, fetchImpl);
+            } catch {
+              // Do not log event, manifest, or response content. Stop to avoid an incomplete later-chunk upload.
+              console.warn('[Askdepth] Failed to upload replay slice');
+              break;
+            }
+          }
 
           lastFlashTimestamp = trigger;
           lastFlashPayloads = payloads;
@@ -306,20 +311,26 @@ function watchRoutes(checkpoint: () => void): () => void {
     lastCheckpoint = nowTime;
     checkpoint();
   };
-  history.pushState = (...args: Parameters<History['pushState']>) => {
+  const wrappedPush = (...args: Parameters<History['pushState']>) => {
     push.apply(history, args);
     safeCheckpoint();
   };
-  history.replaceState = (...args: Parameters<History['replaceState']>) => {
+  const wrappedReplace = (...args: Parameters<History['replaceState']>) => {
     replace.apply(history, args);
     safeCheckpoint();
   };
+  history.pushState = wrappedPush;
+  history.replaceState = wrappedReplace;
   const onRoute = () => safeCheckpoint();
   window.addEventListener('popstate', onRoute);
   window.addEventListener('hashchange', onRoute);
   return () => {
-    history.pushState = push;
-    history.replaceState = replace;
+    if (history.pushState === wrappedPush) {
+      history.pushState = push;
+    }
+    if (history.replaceState === wrappedReplace) {
+      history.replaceState = replace;
+    }
     window.removeEventListener('popstate', onRoute);
     window.removeEventListener('hashchange', onRoute);
   };

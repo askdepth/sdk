@@ -3,20 +3,7 @@ export function cssPath(el: Element): string {
   let node: Element | null = el;
   let depth = 0;
   while (node && depth < 5) {
-    let part = node.tagName.toLowerCase();
-    const className = node.getAttribute('class');
-    if (className) {
-      const token = className.trim().split(/\s+/)[0];
-      if (token) part += `.${token.replace(/([^a-zA-Z0-9_-])/g, '\\$1')}`;
-    }
-    // getAttribute, not `.id` — form controls can clobber the IDL property.
-    const id = node.getAttribute('id');
-    if (id) {
-      parts.unshift(`${part}#${id.replace(/([^a-zA-Z0-9_-])/g, '\\$1')}`);
-      break;
-    }
-    part += `:nth-of-type(${nthOfType(node)})`;
-    parts.unshift(part);
+    parts.unshift(`${node.tagName.toLowerCase()}:nth-of-type(${nthOfType(node)})`);
     node = node.parentElement;
     depth += 1;
   }

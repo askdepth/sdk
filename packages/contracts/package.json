@@ -18,6 +18,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "require": "./dist/index.cjs"
+    },
+    "./protocol-version": {
+      "types": "./dist/versioning/protocol-version.d.ts",
+      "import": "./dist/versioning/protocol-version.js",
+      "require": "./dist/versioning/protocol-version.cjs"
     }
   },
   "files": [

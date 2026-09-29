@@ -9,21 +9,30 @@ import { expect, test, type Page } from '@playwright/test';
 const require = createRequire(import.meta.url);
 const CORE = readFileSync(new URL('../../core/dist/index.mjs', import.meta.url), 'utf8');
 const REPLAY = readFileSync(new URL('../dist/index.js', import.meta.url), 'utf8');
+const PROTOCOL_VERSION_MODULE = readFileSync(
+  new URL('../../contracts/dist/versioning/protocol-version.js', import.meta.url),
+  'utf8',
+);
+const PROTOCOL_VERSION_CHUNK_FILE = PROTOCOL_VERSION_MODULE.match(/from ['"]\.\.\/([^'"]+\.js)['"]/)?.[1];
+if (!PROTOCOL_VERSION_CHUNK_FILE) throw new Error('Could not resolve the contracts protocol-version chunk');
+const CONTRACTS_VERSION_CHUNK = readFileSync(
+  new URL(`../../contracts/dist/${PROTOCOL_VERSION_CHUNK_FILE}`, import.meta.url),
+  'utf8',
+);
 const RECORD = readFileSync(join(dirname(require.resolve('@rrweb/record')), 'record.js'), 'utf8');
 const PLAYER = readFileSync(join(dirname(require.resolve('@rrweb/replay')), 'replay.umd.cjs'), 'utf8');
 
 const PROJECT = '550e8400-e29b-41d4-a716-446655440000';
 
-interface UploadBody {
-  manifest: {
-    slice_id: string;
-    has_baseline_snapshot: boolean;
-    duration_ms: number;
-    compression_algorithm: string;
-  };
-  payload: string;
-  part_index: number;
-  total_parts: number;
+interface ReplayUpload {
+  sessionId: string;
+  sliceId: string;
+  chunkIndex: number;
+  totalChunks: number;
+  protocolVersion: string;
+  writeKey: string;
+  contentType: string;
+  payload: Buffer;
 }
 
 function pageHtml(checkout: number): string {
@@ -38,7 +47,11 @@ function pageHtml(checkout: number): string {
       <button id="rage" type="button">Rage</button>
       <button id="dead" type="button">Dead</button>
       <script type="importmap">
-        { "imports": { "@askdepth/replay": "/sdk/replay.js", "@rrweb/record": "/sdk/record.js" } }
+        { "imports": {
+          "@askdepth/replay": "/sdk/replay.js",
+          "@askdepth/contracts/protocol-version": "/sdk/contracts/versioning/protocol-version.js",
+          "@rrweb/record": "/sdk/record.js"
+        } }
       </script>
       <script type="module">
         import { Askdepth } from '/sdk/core.mjs';
@@ -68,6 +81,16 @@ function listen(checkout: number): Promise<{ server: Server; origin: string }> {
     if (req.url === '/sdk/replay.js') {
       res.setHeader('content-type', 'text/javascript');
       res.end(REPLAY);
+      return;
+    }
+    if (req.url === '/sdk/contracts/versioning/protocol-version.js') {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(PROTOCOL_VERSION_MODULE);
+      return;
+    }
+    if (req.url === `/sdk/contracts/${PROTOCOL_VERSION_CHUNK_FILE}`) {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(CONTRACTS_VERSION_CHUNK);
       return;
     }
     if (req.url === '/sdk/record.js') {
@@ -101,26 +124,46 @@ function listen(checkout: number): Promise<{ server: Server; origin: string }> {
   });
 }
 
-function decodeUploads(raws: string[]): {
+function decodeUploads(uploads: ReplayUpload[]): {
   events: Array<{ type: number; timestamp: number; data?: unknown }>;
-  manifest: UploadBody['manifest'];
+  uploads: ReplayUpload[];
 } {
-  const groups = new Map<string, UploadBody[]>();
-  for (const raw of raws) {
-    const body = JSON.parse(raw) as UploadBody;
-    const list = groups.get(body.manifest.slice_id) ?? [];
-    list.push(body);
-    groups.set(body.manifest.slice_id, list);
+  const groups = new Map<string, ReplayUpload[]>();
+  for (const upload of uploads) {
+    const list = groups.get(upload.sliceId) ?? [];
+    list.push(upload);
+    groups.set(upload.sliceId, list);
   }
-  let best: { events: Array<{ type: number; timestamp: number; data?: unknown }>; manifest: UploadBody['manifest'] } | null = null;
+  let best: { events: Array<{ type: number; timestamp: number; data?: unknown }>; uploads: ReplayUpload[] } | null = null;
   for (const parts of groups.values()) {
-    parts.sort((left, right) => left.part_index - right.part_index);
-    const bytes = Buffer.concat(parts.map((part) => Buffer.from(part.payload, 'base64')));
+    parts.sort((left, right) => left.chunkIndex - right.chunkIndex);
+    const bytes = Buffer.concat(parts.map((part) => part.payload));
     const events = JSON.parse(gunzipSync(bytes).toString('utf8')) as Array<{ type: number; timestamp: number; data?: unknown }>;
-    if (!best || events.length >= best.events.length) best = { events, manifest: parts[0]!.manifest };
+    if (!best || events.length >= best.events.length) best = { events, uploads: parts };
   }
   if (!best) throw new Error('no replay upload');
   return best;
+}
+
+function captureReplayUpload(request: import('@playwright/test').Request): ReplayUpload {
+  const headers = request.headers();
+  const sessionId = headers['x-askdepth-session-id'];
+  const sliceId = headers['x-askdepth-slice-id'];
+  const chunkIndex = Number(headers['x-askdepth-chunk-index']);
+  const totalChunks = Number(headers['x-askdepth-total-chunks']);
+  if (!sessionId || !sliceId || !Number.isInteger(chunkIndex) || !Number.isInteger(totalChunks)) {
+    throw new Error('replay upload is missing required chunk headers');
+  }
+  return {
+    sessionId,
+    sliceId,
+    chunkIndex,
+    totalChunks,
+    protocolVersion: headers['x-askdepth-protocol-version'] ?? '',
+    writeKey: headers['x-askdepth-write-key'] ?? '',
+    contentType: headers['content-type'] ?? '',
+    payload: request.postDataBuffer() ?? Buffer.alloc(0),
+  };
 }
 
 async function replayText(page: Page, events: unknown[]): Promise<string> {
@@ -153,10 +196,10 @@ async function replayText(page: Page, events: unknown[]): Promise<string> {
 
 test('replays a rage-click slice without leaking masked secrets', async ({ page }) => {
   const { server, origin } = await listen(0);
-  const uploads: string[] = [];
+  const uploads: ReplayUpload[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().includes('/v1/replays/upload')) {
-      uploads.push(request.postData() ?? '');
+      uploads.push(captureReplayUpload(request));
     }
   });
   try {
@@ -177,10 +220,18 @@ test('replays a rage-click slice without leaking masked secrets', async ({ page 
     await page.locator('#rage').click();
     await page.locator('#rage').click();
     await expect.poll(() => uploads.length, { timeout: 5_000 }).toBeGreaterThan(0);
-    const { events, manifest } = decodeUploads(uploads);
-    expect(manifest.has_baseline_snapshot).toBe(true);
-    expect(manifest.duration_ms).toBeLessThanOrEqual(45_000);
-    expect(manifest.compression_algorithm).toBe('gzip');
+    const { events, uploads: sliceUploads } = decodeUploads(uploads);
+    expect(sliceUploads.length).toBeGreaterThan(0);
+    for (const upload of sliceUploads) {
+      expect(upload.sessionId).toBeTruthy();
+      expect(upload.protocolVersion).toBe('0.1.0');
+      expect(upload.writeKey).toBe(PROJECT);
+      expect(upload.contentType).toBe('application/octet-stream');
+      expect(upload.payload.byteLength).toBeLessThanOrEqual(45 * 1024);
+    }
+    expect(sliceUploads.map((upload) => upload.chunkIndex)).toEqual(
+      Array.from({ length: sliceUploads[0]!.totalChunks }, (_, index) => index),
+    );
     expect(events.some((event) => event.type === 2)).toBe(true);
     const dumped = JSON.stringify(events);
     expect(dumped).not.toContain('ivan@example.com');
@@ -198,10 +249,10 @@ test('replays a rage-click slice without leaking masked secrets', async ({ page 
 
 test('keeps the latest full snapshot after several checkpoints', async ({ page }) => {
   const { server, origin } = await listen(400);
-  const uploads: string[] = [];
+  const uploads: ReplayUpload[] = [];
   page.on('request', (request) => {
     if (request.method() === 'POST' && request.url().includes('/v1/replays/upload')) {
-      uploads.push(request.postData() ?? '');
+      uploads.push(captureReplayUpload(request));
     }
   });
   try {

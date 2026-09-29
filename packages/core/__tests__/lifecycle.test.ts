@@ -29,7 +29,7 @@ describe('kill switch', () => {
     await vi.waitFor(() => expect(warn).toHaveBeenCalled());
 
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
-    expect(headers['x-askdepth-protocol-version']).toBe('1');
+    expect(headers['x-askdepth-protocol-version']).toBe('0.1.0');
     expect(headers['x-askdepth-sdk-version']).toBeTruthy();
 
     const removed = remove.mock.calls.map((call) => call[0]);
@@ -45,6 +45,8 @@ describe('kill switch', () => {
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(fetchMock).not.toHaveBeenCalled();
     expect(Askdepth.getTraceparent()).toBeNull();
+    expect(Askdepth.getSessionId()).toBeNull();
+    expect(Askdepth.isInitialized()).toBe(false);
   });
 
   it('treats JSON kill:true as a hard stop', async () => {
@@ -82,10 +84,16 @@ describe('consent and init', () => {
     });
     const types = add.mock.calls.map((call) => call[0]);
     expect(types).not.toContain('pointerdown');
+    expect(Askdepth.isInitialized()).toBe(false);
+    expect(Askdepth.getSessionId()).toBeNull();
     Askdepth.setConsent('granted');
     expect(add.mock.calls.map((call) => call[0])).toContain('pointerdown');
+    expect(Askdepth.isInitialized()).toBe(true);
+    expect(Askdepth.getSessionId()).toEqual(expect.any(String));
     Askdepth.revokeConsent();
     expect(Askdepth.getTraceparent()).toBeNull();
+    expect(Askdepth.isInitialized()).toBe(false);
+    expect(Askdepth.getSessionId()).toBeNull();
   });
 
   it('reuses the instance for the same config and rebuilds for a new endpoint', () => {

@@ -6,10 +6,24 @@
     "gzip": true,
     "ignore": ["@askdepth/replay"]
   },
-  {
-    "name": "@askdepth/replay (lazy bundle)",
-    "path": "packages/replay/dist/index.js",
-    "limit": "35 kB",
-    "gzip": true
-  }
-]
+    {
+      "name": "@askdepth/replay (lazy bundle)",
+      "path": "packages/replay/dist/index.js",
+      "limit": "35 kB",
+      "gzip": true
+    },
+    {
+      "name": "@askdepth/react runtime ESM",
+      "path": "packages/react/dist/index.mjs",
+      "limit": "4.8 kB",
+      "gzip": true,
+      "ignore": ["@askdepth/core", "react", "react/jsx-runtime", "react-dom"]
+    },
+    {
+      "name": "@askdepth/react runtime CJS",
+      "path": "packages/react/dist/index.cjs",
+      "limit": "5.2 kB",
+      "gzip": true,
+      "ignore": ["@askdepth/core", "react", "react/jsx-runtime", "react-dom"]
+    }
+  ]

@@ -1,7 +1,8 @@
 import { z } from 'zod';
+import { PROTOCOL_VERSION } from './protocol-version.js';
 
 /** Wire protocol revision. Frozen until a breaking envelope change. */
-export const PROTOCOL_VERSION = 1 as const;
+export { PROTOCOL_VERSION } from './protocol-version.js';
 
 export const ProtocolVersionSchema = z.literal(PROTOCOL_VERSION);
 
