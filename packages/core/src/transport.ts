@@ -28,6 +28,11 @@ interface Batch {
   attempts: number;
 }
 
+interface StagedBatch {
+  batch: Batch;
+  count: number;
+}
+
 export function shouldKillResponse(status: number, headers: Headers, body: unknown): boolean {
   if (status === 410) return true;
   const killHeader = headers.get('x-askdepth-kill');
@@ -50,6 +55,7 @@ export function createQueue(opts: {
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
   let flushing = false;
   let pending: Batch | null = null;
+  let staged: StagedBatch | null = null;
 
   const trim = () => {
     while (items.length > MAX_EVENTS || bytes > MAX_BYTES) {
@@ -77,6 +83,7 @@ export function createQueue(opts: {
     items.length = 0;
     bytes = 0;
     pending = null;
+    staged = null;
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = null;
   };
@@ -174,20 +181,25 @@ export function createQueue(opts: {
       scheduleRetry(batch, retryDelay(null, batch.attempts));
     } finally {
       flushing = false;
-      if (!pending && items.length >= FLUSH_COUNT) void flush();
+      if (!pending && (staged || items.length > 0)) void flush();
     }
   };
 
   const flush = async () => {
-    if (flushing || pending || items.length === 0) return;
+    if (flushing || pending || (!staged && items.length === 0)) return;
     const meta = opts.meta();
     if (!meta?.endpoint) {
       clear();
       return;
     }
-    const events = items.splice(0, items.length);
-    bytes = 0;
-    pending = { body: bodyOf(events, meta), attempts: 0 };
+    if (staged) {
+      pending = staged.batch;
+      staged = null;
+    } else {
+      const events = items.splice(0, items.length);
+      bytes = 0;
+      pending = { body: bodyOf(events, meta), attempts: 0 };
+    }
     await deliver(pending);
   };
 
@@ -209,14 +221,20 @@ export function createQueue(opts: {
 
     // Resend the stable pending body in case its in-flight request is interrupted by navigation.
     if (pending) sendKeepalive(pending.body);
-    if (items.length === 0) return;
-
-    const queued = items.splice(0, items.length);
-    bytes = 0;
-    sendKeepalive(bodyOf(queued, meta));
+    if (pending && items.length > 0 && !staged) {
+      const events = items.splice(0, items.length);
+      bytes = 0;
+      staged = { batch: { body: bodyOf(events, meta), attempts: 0 }, count: events.length };
+    }
+    if (pending) {
+      // The same body remains staged for a retry if this keepalive request fails.
+      if (staged) sendKeepalive(staged.batch.body);
+    } else {
+      void flush();
+    }
   };
 
-  return { enqueue, clear, flush, pause, stop, beacon, size: () => items.length };
+  return { enqueue, clear, flush, pause, stop, beacon, size: () => items.length + (staged?.count ?? 0) };
 }
 
 export type Queue = ReturnType<typeof createQueue>;

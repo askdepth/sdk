@@ -11,7 +11,7 @@ export type Environment = z.infer<typeof EnvironmentSchema>;
 export const TelemetryEventEnvelopeSchema = z.intersection(
   z.object({
     event_id: z.string().uuid(),
-    timestamp: z.string().datetime({ offset: true }),
+    timestamp: z.string().datetime({ offset: true }).optional(),
   }),
   TelemetryEventSchema,
 );

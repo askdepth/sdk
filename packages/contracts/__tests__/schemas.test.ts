@@ -47,7 +47,7 @@ describe('TelemetryEnvelope', () => {
     expect(tracked.events[0]?.timestamp).toBe('2026-09-29T12:00:00.000Z');
   });
 
-  it('requires an occurrence timestamp on each event envelope', () => {
+  it('accepts legacy 0.1.0 events without an occurrence timestamp', () => {
     const base = {
       protocol_version: '0.1.0',
       sdk_name: '@askdepth/core',
@@ -64,6 +64,10 @@ describe('TelemetryEnvelope', () => {
     expect(TelemetryEnvelopeSchema.safeParse({
       ...base,
       events: [{ event_id: eventId, type: 'track', name: 'signup' }],
+    }).success).toBe(true);
+    expect(TelemetryEnvelopeSchema.safeParse({
+      ...base,
+      events: [{ event_id: eventId, timestamp: 'invalid', type: 'track', name: 'signup' }],
     }).success).toBe(false);
   });
 
