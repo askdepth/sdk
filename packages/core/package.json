@@ -1,6 +1,6 @@
 {
   "name": "@askdepth/core",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Askdepth browser RUM core — init, consent, anomaly engines, W3C tracing, batching.",
   "license": "MIT",
   "repository": {
