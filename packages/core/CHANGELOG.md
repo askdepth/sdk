@@ -1,5 +1,18 @@
 # @askdepth/core
 
+## 0.3.0
+
+### Minor Changes
+
+- f022fee: Allow bounded component metadata on frustration events and expose core APIs for React component resolution and caught-error reporting through the anomaly pipeline.
+
+### Patch Changes
+
+- f022fee: Expose the active session id and collector state so React can report readiness without reading private runtime fields.
+- Updated dependencies [f022fee]
+- Updated dependencies [f022fee]
+  - @askdepth/contracts@0.2.0
+
 ## 0.2.0
 
 ### Minor Changes
