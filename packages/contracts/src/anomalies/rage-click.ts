@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { ComponentLocationSchema } from './component-location.js';
 
 export const ClickPointSchema = z.object({
   x: z.number(),
@@ -12,6 +13,7 @@ export const RageClickEventSchema = z.object({
   coordinates: z.array(ClickPointSchema).min(3),
   click_count: z.number().int().min(3),
   target_tag: z.string().min(1),
+  component: ComponentLocationSchema.optional(),
 });
 
 export type ClickPoint = z.infer<typeof ClickPointSchema>;

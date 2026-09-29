@@ -11,7 +11,7 @@ This document mirrors the verification discipline used historically in Askdepth 
 | Runtime | Status | Evidence / Constraints |
 |---|---|---|
 | **Node.js ≥ 20** (SSR context) | **Verified** | SSR no-op paths: importing `@askdepth/core` and calling `init` with denied/unknown consent must not throw `ReferenceError` on `window` / `document`. Covered by Vitest (`jsdom` off for dedicated SSR cases) and package `typecheck`. |
-| **Next.js App Router (RSC)** | **Verified** | Client-only surfaces in `@askdepth/react` are intended to sit behind `'use client'` boundaries. Server Components must not instantiate RUM listeners; provider scaffold enforces client entry. |
+| **Next.js App Router (RSC)** | **Verified** | `@askdepth/react` client entry is marked `'use client'`. `renderToString` under Vitest's Node environment covers the provider without `window`. App Router navigations are observed through `history.pushState` / `replaceState`. |
 | **Chromium ≥ 115** (Chrome, Edge, Brave, Opera) | **Verified** | Playwright headless Chromium in `packages/core/e2e`. Click / visibility heuristics and `fetch` keepalive uploads exercised on this floor. |
 | **WebKit / Safari ≥ 17** (macOS / iOS) | **Verified (constraints)** | Playwright WebKit where available. **Ring buffer clamped to 1.5 MB** in Private Browsing / low-memory signals to avoid jetsam. See Safari memory notes below. |
 | **Firefox ≥ 120** (Gecko) | **Verified** | Playwright Firefox project for transport headers, consent gate, and kill-switch fetch inspection. |
@@ -56,8 +56,8 @@ Teams validating on iOS should test both Normal and Private Browsing tabs before
 
 Regardless of runtime, successful builds inject:
 
-- `x-askdepth-protocol-version: 1`
+- `x-askdepth-protocol-version: 0.1.0`
 - `x-askdepth-sdk-version: <semver>`
-- Envelope field `protocol_version: 1` via `@askdepth/contracts`
+- Envelope field `protocol_version: 0.1.0` via `@askdepth/contracts`
 
 See [`VERSIONING_AND_LIFECYCLE.md`](./VERSIONING_AND_LIFECYCLE.md) for EOL behavior when ingest returns `410` / `{ "kill": true }` / `x-askdepth-kill: true`.

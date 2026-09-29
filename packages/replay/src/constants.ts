@@ -9,9 +9,12 @@ export const DESKTOP_MAX_BYTES = 3 * 1024 * 1024;
 /** 1.5 MiB for mobile browsers and WebKit. */
 export const MOBILE_MAX_BYTES = Math.floor(1.5 * 1024 * 1024);
 
-/** Flash uploads larger than this are split into ordered parts.
- * Kept under 45 KiB so base64-encoded payload + manifest JSON fits inside the browser's 64 KiB keepalive limit. */
+/** Maximum binary replay chunk accepted by analytics-ingest and safe for fetch keepalive. */
 export const CHUNK_BYTES = 45 * 1024;
+
+/** Match analytics-ingest replay assembly limits. */
+export const MAX_REPLAY_CHUNKS = 128;
+export const MAX_REPLAY_BYTES = 4 * 1024 * 1024;
 
 /** Synchronous mutation handling must stay inside one frame. */
 export const FRAME_BUDGET_MS = 8;

@@ -109,9 +109,37 @@ jobs:
         if: steps.core.outputs.run == 'true'
         run: pnpm --filter @askdepth/core size
 
+      - name: Detect @askdepth/react impact
+        id: react
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BASE_REF="origin/${{ github.base_ref }}"
+          affected="$(pnpm turbo run build --dry-run=json --filter="...[${BASE_REF}]")"
+          if printf '%s' "$affected" | node -e "
+            const data = JSON.parse(require('fs').readFileSync(0, 'utf8'));
+            const names = new Set([
+              ...(data.packages ?? []),
+              ...(data.tasks ?? []).map((t) => t.package).filter(Boolean),
+            ]);
+            process.exit(names.has('@askdepth/react') ? 0 : 1);
+          "; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+            echo "Skipping react size-limit — @askdepth/react not in the affected graph."
+          fi
+
       - name: Bundle size (@askdepth/replay < 35 KB gzip)
         if: steps.replay.outputs.run == 'true'
         run: pnpm --filter @askdepth/replay size
+
+      - name: Bundle size (@askdepth/react runtime < 4.8 KB gzip)
+        if: steps.react.outputs.run == 'true'
+        run: pnpm --filter @askdepth/react size
 
       - name: Install Playwright browsers
         if: steps.core.outputs.run == 'true' || steps.replay.outputs.run == 'true'

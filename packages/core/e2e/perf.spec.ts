@@ -4,6 +4,16 @@ import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
 
 const SDK = readFileSync(new URL('../dist/index.mjs', import.meta.url), 'utf8');
+const PROTOCOL_VERSION_MODULE = readFileSync(
+  new URL('../../contracts/dist/versioning/protocol-version.js', import.meta.url),
+  'utf8',
+);
+const PROTOCOL_VERSION_CHUNK_FILE = PROTOCOL_VERSION_MODULE.match(/from ['"]\.\.\/([^'"]+\.js)['"]/)?.[1];
+if (!PROTOCOL_VERSION_CHUNK_FILE) throw new Error('Could not resolve the contracts protocol-version chunk');
+const CONTRACTS_VERSION_CHUNK = readFileSync(
+  new URL(`../../contracts/dist/${PROTOCOL_VERSION_CHUNK_FILE}`, import.meta.url),
+  'utf8',
+);
 
 function listen(): Promise<{ server: Server; origin: string }> {
   const server = createServer((req, res) => {
@@ -12,8 +22,19 @@ function listen(): Promise<{ server: Server; origin: string }> {
       res.end(SDK);
       return;
     }
+    if (req.url === '/sdk/contracts/versioning/protocol-version.js') {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(PROTOCOL_VERSION_MODULE);
+      return;
+    }
+    if (req.url === `/sdk/contracts/${PROTOCOL_VERSION_CHUNK_FILE}`) {
+      res.setHeader('content-type', 'text/javascript');
+      res.end(CONTRACTS_VERSION_CHUNK);
+      return;
+    }
     res.setHeader('content-type', 'text/html; charset=utf-8');
     res.end(`<!doctype html><div id="root"></div>
+      <script type="importmap">{"imports":{"@askdepth/contracts/protocol-version":"/sdk/contracts/versioning/protocol-version.js"}}</script>
       <script type="module">
         import { Askdepth } from '/sdk/index.mjs';
         const root = document.getElementById('root');
@@ -53,6 +74,9 @@ test('click handling stays under 1ms on the main thread', async ({ page }) => {
     });
     expect(average).toBeLessThan(1);
   } finally {
-    await new Promise((resolve) => server.close(resolve));
+    await new Promise<void>((resolve) => {
+      server.close(resolve);
+      server.closeAllConnections();
+    });
   }
 });

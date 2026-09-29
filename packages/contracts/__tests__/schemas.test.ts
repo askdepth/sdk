@@ -13,55 +13,99 @@ import {
   IdentifyEventSchema,
 } from '../src/index.js';
 
-const projectId = '550e8400-e29b-41d4-a716-446655440000';
 const sessionId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
+const batchId = '4f8b2bb0-9de0-4b1e-8ae0-0485ff1f0a0f';
+const eventId = 'ee7c905d-4aef-4cc5-9c63-9bfeb718bc7f';
 
 describe('TelemetryEnvelope', () => {
-  it('freezes protocol_version at 1 and accepts a full batch', () => {
-    expect(PROTOCOL_VERSION).toBe(1);
+  it('freezes protocol_version at 0.1.0 and accepts identified events without client project ownership', () => {
+    expect(PROTOCOL_VERSION).toBe('0.1.0');
     const envelope = createTelemetryEnvelope({
       sdk_name: '@askdepth/core',
       sdk_version: '1.4.2',
-      project_id: projectId,
       environment: 'production',
       session_id: sessionId,
+      batch_id: batchId,
       sent_at: new Date().toISOString(),
       events: [],
     });
-    expect(envelope.protocol_version).toBe(1);
+    expect(envelope.protocol_version).toBe('0.1.0');
     expect(TelemetryEnvelopeSchema.parse(envelope)).toEqual(envelope);
     const tracked = createTelemetryEnvelope({
       sdk_name: '@askdepth/core',
       sdk_version: '1.4.2',
-      project_id: projectId,
       environment: 'production',
       session_id: sessionId,
+      batch_id: batchId,
       sent_at: new Date().toISOString(),
       events: [
-        TrackEventSchema.parse({ type: 'track', name: 'signup' }),
-        IdentifyEventSchema.parse({ type: 'identify', user_id: 'user_1' }),
+        { event_id: eventId, timestamp: '2026-09-29T12:00:00.000Z', ...TrackEventSchema.parse({ type: 'track', name: 'signup' }) },
+        { event_id: 'd1ce0b0c-0985-41b1-85e9-b1f7e42ab7aa', timestamp: '2026-09-29T12:00:01.000Z', ...IdentifyEventSchema.parse({ type: 'identify', user_id: 'user_1' }) },
       ],
     });
     expect(tracked.events).toHaveLength(2);
+    expect(tracked.events[0]?.timestamp).toBe('2026-09-29T12:00:00.000Z');
   });
 
-  it('rejects a non-uuid project id and a bad environment', () => {
+  it('requires an occurrence timestamp on each event envelope', () => {
+    const base = {
+      protocol_version: '0.1.0',
+      sdk_name: '@askdepth/core',
+      sdk_version: '1.0.0',
+      environment: 'production',
+      session_id: sessionId,
+      batch_id: batchId,
+      sent_at: '2026-09-29T12:00:00.000Z',
+    };
+    expect(TelemetryEnvelopeSchema.safeParse({
+      ...base,
+      events: [{ event_id: eventId, timestamp: '2026-09-29T11:59:59.000Z', type: 'track', name: 'signup' }],
+    }).success).toBe(true);
+    expect(TelemetryEnvelopeSchema.safeParse({
+      ...base,
+      events: [{ event_id: eventId, type: 'track', name: 'signup' }],
+    }).success).toBe(false);
+  });
+
+  it('rejects an invalid batch or event id and a bad environment', () => {
     expect(
       TelemetryEnvelopeSchema.safeParse({
-        protocol_version: 1,
+        protocol_version: '0.1.0',
         sdk_name: '@askdepth/core',
         sdk_version: '1.0.0',
-        project_id: 'not-an-id',
         environment: 'test',
         session_id: sessionId,
+        batch_id: 'not-a-uuid',
         sent_at: new Date().toISOString(),
-        events: [],
+        events: [{ event_id: 'not-a-uuid', type: 'track', name: 'signup' }],
       }).success,
     ).toBe(false);
   });
 });
 
 describe('anomaly schemas', () => {
+  it('bounds custom payloads and rejects unsupported or unbounded values', () => {
+    expect(TrackEventSchema.parse({
+      type: 'track',
+      name: 'checkout_completed',
+      properties: { total: 99.5, items: ['sku-1'], nested: { coupon: null } },
+    }).properties).toBeTruthy();
+    expect(TrackEventSchema.safeParse({
+      type: 'track',
+      name: 'x'.repeat(201),
+    }).success).toBe(false);
+    expect(IdentifyEventSchema.safeParse({
+      type: 'identify',
+      user_id: 'user-1',
+      traits: { deep: { a: { b: { c: { d: 'too deep' } } } } },
+    }).success).toBe(false);
+    expect(TrackEventSchema.safeParse({
+      type: 'track',
+      name: 'signup',
+      properties: { value: 'x'.repeat(513) },
+    }).success).toBe(false);
+  });
+
   it('validates RAGE_CLICK', () => {
     const event = {
       type: 'RAGE_CLICK' as const,
@@ -110,7 +154,7 @@ describe('anomaly schemas', () => {
         target_selector: '.submit-btn',
         error_type: 'network_error',
         error_details: {
-          method: 'POST',
+          method: 'M-SEARCH',
           url: '/api/pay',
           status_code: 500,
           duration_ms: 40,
@@ -118,6 +162,33 @@ describe('anomaly schemas', () => {
         time_to_error_ms: 2000,
       }).error_type,
     ).toBe('network_error');
+
+    expect(ErrorClickEventSchema.parse({
+      type: 'ERROR_CLICK',
+      target_selector: '.version',
+      error_type: 'network_error',
+      error_details: { method: 'VERSION-CONTROL', url: '/api/version', status_code: 501, duration_ms: 12 },
+      time_to_error_ms: 50,
+    }).error_details.method).toBe('VERSION-CONTROL');
+
+    expect(
+      ErrorClickEventSchema.safeParse({
+        type: 'ERROR_CLICK',
+        target_selector: 'button.pay',
+        error_type: 'js_exception',
+        error_details: { message: 'x'.repeat(241), stack: 'at app:1:1', handled: false },
+        time_to_error_ms: 100,
+      }).success,
+    ).toBe(false);
+    expect(
+      ErrorClickEventSchema.safeParse({
+        type: 'ERROR_CLICK',
+        target_selector: 'button.pay',
+        error_type: 'network_error',
+        error_details: { method: 'post', url: '/pay', status_code: 500, duration_ms: 600_001 },
+        time_to_error_ms: 100,
+      }).success,
+    ).toBe(false);
 
     expect(
       ErrorClickEventSchema.safeParse({

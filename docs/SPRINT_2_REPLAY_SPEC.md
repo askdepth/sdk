@@ -1,160 +1,160 @@
-# Техническое задание (Исправленная редакция): Спринт 2 — Движок записи сессий (`@askdepth/replay`), кольцевой буфер памяти и клиентское маскирование
+# Technical Specification (Revised): Sprint 2 — Session Recording Engine (`@askdepth/replay`), In-Memory Ring Buffer, and Client-Side Masking
 
 ---
 
-## 1. Общие сведения и архитектурный контекст
+## 1. Overview and Architectural Context
 
-* **Цель спринта:** Реализовать высокопроизводительный модульный пакет `@askdepth/replay`, обеспечивающий непрерывную запись пользовательской сессии в **кольцевой буфер оперативной памяти (Ring Buffer, 45 секунд)** с клиентским маскированием персональных данных (Zero-PII Leakage) и гарантированным сбросом среза сессии (Flash-to-Server) при фиксации фрустрации (Rage Click, Dead Click, Error Click) из Спринта 1.
-* **Архитектурные границы пакетов:**
-  * `packages/contracts` (`@askdepth/contracts`) — строгие Zod-схемы и TypeScript-типы: события сессии, манифесты срезов (`ReplaySliceManifest`), полезная нагрузка чанков (`ReplayUploadPayload`), алгоритмы компрессии.
-  * `packages/replay` (`@askdepth/replay`) — легковесный изолированный рекордер на базе `@rrweb/record`, кольцевой буфер с защитой цепочки DOM-мутаций, компрессия в потоке и клиентский stateful-санитизатор.
-  * `packages/core` (`@askdepth/core`) — отложенная загрузка (`dynamic import`) в фазе простоя (`requestIdleCallback` после `window.onload` + 3с задержка), предиктивная загрузка по ранним признакам фрустрации (`noteFriction`) и шина аномалий (`anomaly-bus`).
+* **Sprint goal:** Ship a high-performance modular `@askdepth/replay` package that continuously records the user session into an **in-memory ring buffer (45 seconds)** with client-side PII masking (Zero-PII Leakage) and a guaranteed session-slice upload (Flash-to-Server) when Sprint 1 frustration signals fire (Rage Click, Dead Click, Error Click).
+* **Package boundaries:**
+  * `packages/contracts` (`@askdepth/contracts`) — strict Zod schemas and TypeScript types: session events, slice manifests (`ReplaySliceManifest`), chunk payloads (`ReplayUploadPayload`), compression algorithms.
+  * `packages/replay` (`@askdepth/replay`) — lightweight isolated recorder on `@rrweb/record`, a ring buffer that preserves DOM mutation chains, in-stream compression, and a stateful client sanitizer.
+  * `packages/core` (`@askdepth/core`) — deferred load (`dynamic import`) during idle (`requestIdleCallback` after `window.onload` + 3s delay), predictive load on early friction (`noteFriction`), and the anomaly bus (`anomaly-bus`).
 
 ---
 
-## 2. Контракты и схемы данных (`packages/contracts`)
+## 2. Contracts and Data Schemas (`packages/contracts`)
 
-### 2.1. Разделение сущностей: RRWebEvent vs ReplaySliceManifest
+### 2.1. Entity Split: RRWebEvent vs ReplaySliceManifest
 
 > [!IMPORTANT]
-> В оригинальном черновом ТЗ поля манифеста (`session_id`, `compression_algorithm`, `uncompressed_byte_size`) ошибочно смешивались с сырыми событиями rrweb. В контракте они строго разделены:
+> The original draft mixed manifest fields (`session_id`, `compression_algorithm`, `uncompressed_byte_size`) into raw rrweb events. The contract keeps them strictly separate:
 
-1. **`RRWebEvent`** — сырое атомарное событие DOM-рекордера:
-   * `type: number` — числовой enum rrweb (`0: DomContentLoaded`, `1: Load`, `2: FullSnapshot`, `3: IncrementalSnapshot`, `4: Meta`, `5: Custom`).
-   * `data: unknown` — полезная нагрузка мутации или взаимодействия.
-   * `timestamp: number` — миллисекунды эпохи Unix.
+1. **`RRWebEvent`** — atomic DOM-recorder event:
+   * `type: number` — rrweb numeric enum (`0: DomContentLoaded`, `1: Load`, `2: FullSnapshot`, `3: IncrementalSnapshot`, `4: Meta`, `5: Custom`).
+   * `data: unknown` — mutation or interaction payload.
+   * `timestamp: number` — Unix epoch milliseconds.
 
-2. **`ReplaySliceManifest`** — метаданные загружаемого среза:
-   * `slice_id: string (UUIDv4)` — глобальный идентификатор среза.
-   * `triggering_anomaly_id: string` — ID аномалии (Rage/Dead/Error Click), инициировавшей сброс.
-   * `session_id: string` — сквозной идентификатор сессии Askdepth.
-   * `environment: string` — окружение (`production`, `staging`, `development`).
-   * `start_timestamp: number` — таймстамп первого события в срезе.
-   * `trigger_timestamp: number` — точный таймстамп возникновения аномалии.
-   * `duration_ms: number` — фактическая длительность среза ($\le 45\,000$ мс).
-   * `has_baseline_snapshot: boolean` — флаг наличия полностраничного снимка `FullSnapshot` в начале среза.
-   * `events_count: number` — общее число событий в пачке.
-   * `uncompressed_byte_size: number` — исходный байтовый размер JSON-сериализации.
-   * `compressed_byte_size: number` — размер сжатого бинарного блоба.
-   * `compression_algorithm: 'gzip' | 'deflate' | 'none'` — применённый алгоритм сжатия.
-   * `sequence_number?: number` — монотонный счетчик срезов в рамках одной сессии для дедупликации и упорядочивания на бэкенде.
+2. **`ReplaySliceManifest`** — metadata for an uploaded slice:
+   * `slice_id: string (UUIDv4)` — global slice id.
+   * `triggering_anomaly_id: string` — id of the anomaly (Rage/Dead/Error Click) that triggered the flash.
+   * `session_id: string` — Askdepth session id.
+   * `environment: string` — environment (`production`, `staging`, `development`).
+   * `start_timestamp: number` — timestamp of the first event in the slice.
+   * `trigger_timestamp: number` — exact anomaly timestamp.
+   * `duration_ms: number` — actual slice duration ($\le 45\,000$ ms).
+   * `has_baseline_snapshot: boolean` — whether a `FullSnapshot` opens the slice.
+   * `events_count: number` — event count in the batch.
+   * `uncompressed_byte_size: number` — raw JSON byte size.
+   * `compressed_byte_size: number` — compressed binary size.
+   * `compression_algorithm: 'gzip' | 'deflate' | 'none'` — algorithm used.
+   * `sequence_number?: number` — monotonic per-session counter for dedupe and backend ordering.
 
-3. **`ReplayUploadPayload`** — транспортный контейнер чанка:
+3. **`ReplayUploadPayload`** — transport chunk container:
    * `manifest: ReplaySliceManifest`
-   * `payload: Uint8Array | string` — бинарный или base64-сжатый срез.
-   * `part_index: number` — 0-индексированный номер части.
-   * `total_parts: number` — общее количество частей в данном срезе.
+   * `payload: Uint8Array | string` — binary or base64-compressed slice.
+   * `part_index: number` — 0-based part index.
+   * `total_parts: number` — total parts for this slice.
 
 ---
 
-## 3. Детальная спецификация пакета `@askdepth/replay`
+## 3. Detailed Specification for `@askdepth/replay`
 
-### 3.1. Интеграция рекордера DOM (`@rrweb/record`)
-* `checkoutEveryNms: 45000` — каждые 45 секунд рекордер генерирует свежий `FullSnapshot`, обновляющий базовый снимок в памяти.
-* Дополнительные чекпоинты: автоматический `takeFullSnapshot(true)` при смене SPA-роута (`pushState`, `replaceState`, `popstate`, `hashchange`) с троттлингом не чаще 1 раза в 1000 мс.
-* `inlineStylesheet: true` — сохранение внешних CSS для стабильности отображения.
-* `collectFonts: false`, `inlineImages: false`, `recordCanvas: false` — запрет сбора тяжелых бинарных ресурсов.
-* Троттлинг:
-  * `mousemove`: 50 мс на десктопе, **полностью отключено** (`false`) на мобильных и WebKit-устройствах.
-  * `scroll: 150` мс.
-  * `input: 'last'` — фиксация финального значения ввода вместо каждого нажатия клавиши.
+### 3.1. DOM Recorder Integration (`@rrweb/record`)
+* `checkoutEveryNms: 45000` — every 45 seconds the recorder emits a fresh `FullSnapshot` that refreshes the in-memory baseline.
+* Extra checkpoints: automatic `takeFullSnapshot(true)` on SPA route changes (`pushState`, `replaceState`, `popstate`, `hashchange`), throttled to at most once per 1000 ms.
+* `inlineStylesheet: true` — keep external CSS for stable playback.
+* `collectFonts: false`, `inlineImages: false`, `recordCanvas: false` — do not collect heavy binary assets.
+* Throttling:
+  * `mousemove`: 50 ms on desktop, **fully disabled** (`false`) on mobile and WebKit.
+  * `scroll: 150` ms.
+  * `input: 'last'` — record the final input value instead of every keystroke.
 
 ---
 
-### 3.2. Архитектура кольцевого буфера памяти (`RingBuffer`) и инварианты целостности DOM
+### 3.2. Ring Buffer Architecture and DOM Integrity Invariants
 
 ```
 ┌────────────────────────────────────────────────────────┐
 │            Checkpoint Slot (Active FullSnapshot)       │
-│    Обновляется каждые 45с, при SPA-роуте или onPressure │
+│    Refreshed every 45s, on SPA route change, or onPressure │
 └───────────────────────────┬────────────────────────────┘
                             │
                             ▼
-[DOM Mutations] ──► [EventSanitizer] ──► [FIFO Ring Buffer: последние 45 сек]
+[DOM Mutations] ──► [EventSanitizer] ──► [FIFO Ring Buffer: last 45 sec]
                                               │
-                                              │ (При триггере фрустрации)
+                                              │ (On frustration trigger)
                                               ▼
                         [Flash-to-Server Assembly Engine]
 ```
 
-#### Инвариант целостности DOM (P0):
-* При воспроизведении DOM в плеере любая инкрементальная мутация узла зависит от предыдущих мутаций, создавших или изменивших этот узел начиная с `FullSnapshot`.
-* **Запрет произвольного удаления:** Запрещено удалять отдельные события мутаций DOM (`type: 3, source: 0`) из середины цепочки событий. Удаление промежуточной мутации приводит к критической ошибке `Node with id N not found` в плеере.
-* **Инвариант среза (`slice`):** Срез гарантирует `baseline.timestamp <= trigger_timestamp`. Все структурные мутации DOM между `baseline.timestamp` и моментом триггера **в обязательном порядке включаются в срез**, даже если они произошли раньше границы скользящего окна ($T_{\text{trigger}} - 45\,\text{с}$). Потоковые события (мышь, скролл), не влияющие на дерево элементов, фильтруются строго по границе окна.
-* **Политика вытеснения при давлении памяти (`evictByMemory`):**
-  1. Вытеснение pointer samples (`mousemove`, `touchmove`).
-  2. Вытеснение промежуточных событий скролла.
-  3. Если память всё ещё превышает лимит: запрещено удалять мутации DOM. Буфер вызывает `onPressure()`, инициирующий генерацию нового `FullSnapshot`. Новый `FullSnapshot` становится активным `baseline`, после чего весь старый хвост мутаций безопасно сбрасывается.
-* **Защита очереди `pending` (Backpressure):** Очередь несинхронизированных событий в `engine.ts` ограничена лимитом `MAX_PENDING = 500`. При его превышении автоматически отбрасываются мышиные трейлы.
+#### DOM integrity invariant (P0):
+* During playback, any incremental node mutation depends on earlier mutations that created or changed that node since the last `FullSnapshot`.
+* **No arbitrary deletion:** Do not drop individual DOM mutation events (`type: 3, source: 0`) from the middle of the chain. Removing a mid-chain mutation causes a fatal player error: `Node with id N not found`.
+* **Slice invariant:** A slice guarantees `baseline.timestamp <= trigger_timestamp`. Every structural DOM mutation between `baseline.timestamp` and the trigger **must be included**, even if it happened before the sliding window edge ($T_{\text{trigger}} - 45\,\text{s}$). Streaming events (mouse, scroll) that do not change the element tree are filtered strictly by the window edge.
+* **Memory-pressure eviction (`evictByMemory`):**
+  1. Drop pointer samples (`mousemove`, `touchmove`).
+  2. Drop intermediate scroll events.
+  3. If memory is still over budget: do not delete DOM mutations. The buffer calls `onPressure()`, which takes a new `FullSnapshot`. That snapshot becomes the active `baseline`, after which the old mutation tail can be discarded safely.
+* **Pending queue backpressure:** The unsynced event queue in `engine.ts` is capped at `MAX_PENDING = 500`. Over that limit, mouse trails are dropped automatically.
 
 ---
 
-### 3.3. Модуль маскирования и санитизации (Privacy-by-Default & Zero-PII Leakage)
+### 3.3. Masking and Sanitization (Privacy-by-Default & Zero-PII Leakage)
 
-#### 1. Строгий Allowlist для заблокированных узлов (`[data-askdepth-block]`, `.askdepth-block`):
-* Чтобы предотвратить утечку приватных данных через CSS-классы (например, `class="user-id-12345"`), идентификаторы, инлайн-стили (`background-image: url(...)`) или кастомные атрибуты:
-  * Все дочерние узлы полностью удаляются (`node.childNodes = []`).
-  * Для атрибутов применяется строгий allowlist: сохраняются **только** `width`, `height`, `rr_width`, `rr_height`, маркер `data-askdepth-block` и нейтральный стиль плейсхолдера.
-  * Атрибуты `class`, `id`, `style`, `src`, `href`, `data-*`, `aria-*`, `title`, `alt`, `value` **полностью удаляются**.
+#### 1. Strict allowlist for blocked nodes (`[data-askdepth-block]`, `.askdepth-block`):
+* To stop private data leaking through CSS classes (for example `class="user-id-12345"`), ids, inline styles (`background-image: url(...)`), or custom attributes:
+  * All child nodes are removed (`node.childNodes = []`).
+  * Attributes use a strict allowlist: keep **only** `width`, `height`, `rr_width`, `rr_height`, the `data-askdepth-block` marker, and a neutral placeholder style.
+  * Attributes `class`, `id`, `style`, `src`, `href`, `data-*`, `aria-*`, `title`, `alt`, `value` are **fully removed**.
 
-#### 2. Поля ввода HTML и `contenteditable`:
-* Все поля ввода (`input`, `textarea`, `select`, `contenteditable`) маскируются по умолчанию (`*`). Длина строки сохраняется.
-* Пароли (`input[type="password"]`), поля карт (`cc-*`, CVC) блокируются.
+#### 2. HTML inputs and `contenteditable`:
+* All inputs (`input`, `textarea`, `select`, `contenteditable`) are masked by default (`*`). String length is preserved.
+* Passwords (`input[type="password"]`) and card fields (`cc-*`, CVC) are blocked.
 
-#### 3. Stateful-санитизатор (`EventSanitizer`):
-* В отличие от stateless-функций, `EventSanitizer` сохраняет `Set<number>` ID всех нод, находящихся внутри `contenteditable`, `[data-askdepth-mask]` и `.askdepth-mask`.
-* При инкрементальных мутациях ввода (`texts: [{ id, value }]`) санитизатор мгновенно определяет принадлежность узла и маскирует текст звёздочками, гарантируя отсутствие утечек при динамическом вводе.
+#### 3. Stateful sanitizer (`EventSanitizer`):
+* Unlike stateless helpers, `EventSanitizer` keeps a `Set<number>` of node ids under `contenteditable`, `[data-askdepth-mask]`, and `.askdepth-mask`.
+* On incremental input mutations (`texts: [{ id, value }]`) the sanitizer resolves membership immediately and masks text with asterisks so dynamic typing cannot leak.
 
-#### 4. Глубокая очистка PII и токенов (`maskText`):
-* **JWT-токены:** регулярное выражение `\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\b` $\to$ `[REDACTED_JWT]`.
-* **Bearer-токены:** `\bBearer\s+[A-Za-z0-9_\-\.=]{16,}\b` $\to$ `Bearer [REDACTED_TOKEN]`.
-* **API-ключи и секреты:** `(?:api[_-]?key|auth[_-]?token|client[_-]?secret)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{16,}` $\to$ `[REDACTED_SECRET]`.
-* **Банковские карты:**
-  * Проверка по формуле Луна для 13–19-значных номеров.
-  * Префиксная эвристика (`Card:`, `Карта:`, `cc:`, `pan:`): маскирует карты даже в случае опечатки пользователя или тестовых номеров, не проходящих проверку Луна.
-* **Email, телефоны, документы (паспорта, SSN):** строгая замена на маркеры `[REDACTED_*]`.
-* **CSS & URL Sanitization:** вырезание чувствительных query-параметров (`token`, `secret`, `email`, `auth`) из `src`, `href` и инлайн-стилей `url(...)`.
+#### 4. Deep PII and token scrubbing (`maskText`):
+* **JWT tokens:** regex `\beyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]+\b` $\to$ `[REDACTED_JWT]`.
+* **Bearer tokens:** `\bBearer\s+[A-Za-z0-9_\-\.=]{16,}\b` $\to$ `Bearer [REDACTED_TOKEN]`.
+* **API keys and secrets:** `(?:api[_-]?key|auth[_-]?token|client[_-]?secret)\s*[:=]\s*['"]?[A-Za-z0-9_\-]{16,}` $\to$ `[REDACTED_SECRET]`.
+* **Bank cards:**
+  * Luhn check for 13–19 digit numbers.
+  * Labeled heuristic (`Card:`, `cc:`, `pan:`): redact cards even when the number fails Luhn (typos or test numbers).
+* **Email, phones, documents (passports, SSN):** replace with `[REDACTED_*]` markers.
+* **CSS & URL sanitization:** strip sensitive query params (`token`, `secret`, `email`, `auth`) from `src`, `href`, and inline `url(...)` styles.
 
-#### 5. Инкрементальная санитизация заблокированных узлов (Incremental Hardening):
-* Если в заблокированный узел (`blockedIds`) поступают последующие инкрементальные мутации (`attributes`, `texts` или `source: 5` input):
-  * Для `attributes` применяется строгий allowlist габаритов: атрибуты очищаются, сохраняются только `data-askdepth-block`, `width`, `height`, `rr_width`, `rr_height`.
-  * Для `texts` и `input` мутаций значение принудительно обнуляется (`value = ''`, `text = ''`).
-
----
-
-### 3.4. Механизм сброса и транспорт (Flash-to-Server)
-
-#### 1. W3C Keepalive лимит (64 KiB) и чанкование:
-* Браузерная квота для `fetch(..., { keepalive: true })` составляет строго **64 KiB** на вкладку.
-* Размер бинарного чанка задан как `CHUNK_BYTES = 45 * 1024` (45 КиБ).
-* С учётом накладных расходов base64 (+33%) и JSON-манифеста размер тела запроса составляет ~60 КиБ, что гарантированно укладывается в браузерный лимит и позволяет использовать `keepalive: true`.
-
-#### 2. Блокировка гонок (Concurrency Lock) и дедупликация:
-* При одновременном срабатывании нескольких эвристик (например, серия из 3 Rage Clicks + Fatal JS Error):
-  * Вызов `flash()` блокируется мьютексом `flashingPromise`. Все параллельные вызовы ожидают текущий сброс, исключая дублирование сетевых запросов.
-  * Кулдаун 1000 мс предотвращает спам идентичными срезами.
-  * Каждому срезу присваивается уникальный `slice_id` и монотонный `sequence_number`.
-
-#### 3. Таймауты и устойчивость к сбоям (Retry Policy):
-* Сетевые запросы оборачиваются в `AbortController` с таймаутом 10 секунд и оперативным сбросом таймера.
-* При получении серверных ошибок 5xx выполняется до 2 повторных попыток с экспоненциальной задержкой. При исчерпании попыток выбрасывается исключение для логирования.
-
-#### 4. Реактивная предзагрузка по аномалиям (`replay-loader.ts`):
-* Шина `onAnomaly` не ожидает истечения 3-секундного таймера `requestIdleCallback`.
-* Любая зафиксированная аномалия немедленно инициирует `loadNow()`.
-* Очередь `pending: AnomalySignal[]` сохраняет все поступившие сигналы до завершения динамического импорта и сбрасывает их сразу после инициализации движка.
+#### 5. Incremental hardening for blocked nodes:
+* If a blocked node (`blockedIds`) later receives incremental mutations (`attributes`, `texts`, or `source: 5` input):
+  * For `attributes`, apply the size allowlist: keep only `data-askdepth-block`, `width`, `height`, `rr_width`, `rr_height`.
+  * For `texts` and `input` mutations, force empty values (`value = ''`, `text = ''`).
 
 ---
 
-## 4. Критерии приёмки и обязательные Acceptance-тесты
+### 3.4. Flash and Transport (Flash-to-Server)
 
-1. **DOM Mutation Eviction Safety:** При превышении лимита памяти удаляются только pointer/scroll события; цепочка DOM-мутаций от `baseline` до текущего момента сохраняется непрерывной.
-2. **PII Scrubbing across Attributes, URLs and Styles:** Проверка маскирования JWT, Bearer-токенов, API-ключей, номеров карт, query-параметров и CSS `url(...)`.
-3. **Strict Blocked Node Allowlist:** Для узлов с `data-askdepth-block` или классом `.askdepth-block` атрибуты `class`, `id`, `style`, `src`, `href` удаляются, а `childNodes` очищаются как на `FullSnapshot`, так и при инкрементальных мутациях.
-4. **Flash Concurrency & Monotonic Ordering:** Параллельные вызовы `flash()` не приводят к дублированию отправок; срезы имеют последовательные `sequence_number`.
-5. **Clean Teardown / Zero Memory Leak:** Многократный цикл `start() -> flash() -> stop()` полностью освобождает память кольцевого буфера (`dump().length === 0`), восстанавливает `history.pushState` и не оставляет активных слушателей `visibilitychange`.
-6. **Keepalive Safety:** Размер любого загружаемого чанка строго меньше 64 KiB.
+#### 1. W3C keepalive limit (64 KiB) and chunking:
+* Browser quota for `fetch(..., { keepalive: true })` is strictly **64 KiB** per tab.
+* Binary chunk size is `CHUNK_BYTES = 45 * 1024` (45 KiB).
+* After base64 overhead (+33%) and the JSON manifest, request bodies land around ~60 KiB, safely under the browser limit so `keepalive: true` remains usable.
+
+#### 2. Concurrency lock and dedupe:
+* When several heuristics fire together (for example three Rage Clicks + a fatal JS error):
+  * `flash()` is gated by a `flashingPromise` mutex. Parallel callers await the in-flight flash instead of duplicating network uploads.
+  * A 1000 ms cooldown stops spam of identical slices.
+  * Each slice gets a unique `slice_id` and a monotonic `sequence_number`.
+
+#### 3. Timeouts and retry policy:
+* Network calls use `AbortController` with a 10 second timeout and timer cleanup.
+* On 5xx responses, retry up to 2 times with exponential backoff. After retries are exhausted, throw for logging.
+
+#### 4. Reactive preload on anomalies (`replay-loader.ts`):
+* The `onAnomaly` bus does not wait for the 3 second `requestIdleCallback` timer.
+* Any recorded anomaly immediately calls `loadNow()`.
+* A `pending: AnomalySignal[]` queue holds signals until the dynamic import finishes, then drains them once the engine is ready.
+
+---
+
+## 4. Acceptance Criteria and Required Tests
+
+1. **DOM Mutation Eviction Safety:** Under memory pressure, only pointer/scroll events are dropped; the DOM mutation chain from `baseline` to now stays continuous.
+2. **PII Scrubbing across Attributes, URLs and Styles:** Verify masking of JWT, Bearer tokens, API keys, card numbers, query params, and CSS `url(...)`.
+3. **Strict Blocked Node Allowlist:** For `data-askdepth-block` or `.askdepth-block` nodes, `class`, `id`, `style`, `src`, `href` are removed and `childNodes` are cleared on both `FullSnapshot` and incremental mutations.
+4. **Flash Concurrency & Monotonic Ordering:** Parallel `flash()` calls do not duplicate uploads; slices carry sequential `sequence_number` values.
+5. **Clean Teardown / Zero Memory Leak:** Repeated `start() -> flash() -> stop()` frees the ring buffer (`dump().length === 0`), restores `history.pushState`, and leaves no `visibilitychange` listeners.
+6. **Keepalive Safety:** Every uploaded chunk is strictly under 64 KiB.
 7. **Size Budget Compliance:**
-   * `@askdepth/core` $\le 10\text{ kB}$ gzipped (факт: **6.69 kB**).
-   * `@askdepth/replay` $\le 35\text{ kB}$ gzipped (факт: **31.48 kB**).
-8. **Test Coverage:** Покрытие тестами $\ge 90\%$ (факт: **92.23%** statements, **90.54%** functions, 38/38 тестов).
+   * `@askdepth/core` $\le 10\text{ kB}$ gzipped (actual: **6.69 kB**).
+   * `@askdepth/replay` $\le 35\text{ kB}$ gzipped (actual: **31.48 kB**).
+8. **Test Coverage:** Line coverage $\ge 90\%$ (actual: **92.23%** statements, **90.54%** functions, 38/38 tests).

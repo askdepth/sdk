@@ -1,15 +1,13 @@
-import type { AskdepthInitOptions } from '@askdepth/core';
+'use client';
 
-export type AskdepthProviderProps = AskdepthInitOptions & {
-  children?: unknown;
-};
-
-/**
- * Scaffold for the React 19 / Next.js provider.
- * Full provider + AST compiler plugin land in a later sprint.
- */
-export function createAskdepthConfig(options: AskdepthInitOptions): AskdepthInitOptions {
-  return options;
-}
-
-export type { AskdepthInitOptions };
+export { AskdepthProvider, AskdepthContext } from './provider.js';
+export { useAskdepth } from './hooks/use-askdepth.js';
+export { AskdepthCatch } from './components/error-boundary.js';
+export { resolveComponentLocation } from './fiber.js';
+export type { AskdepthInitOptions, ConsentState } from '@askdepth/core';
+export type {
+  AskdepthContextValue,
+  AskdepthProviderProps,
+  AskdepthFallback,
+  ResolvedComponentLocation,
+} from './types.js';

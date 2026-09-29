@@ -22,6 +22,7 @@ describe('rrweb session', () => {
 
     const engine = createReplayEngine({
       sessionId: 'sess',
+      writeKey: 'pk_test_123',
       environment: 'test',
       endpoint: 'https://collector.test/v1/replays/upload',
       schedule: (fn) => fn(),
@@ -46,6 +47,7 @@ describe('rrweb session', () => {
   it('drops pointer samples when the document becomes hidden', () => {
     const engine = createReplayEngine({
       sessionId: 'sess',
+      writeKey: 'pk_test_123',
       environment: 'test',
       endpoint: 'https://collector.test/v1/replays/upload',
       now: () => 5_000,
@@ -72,6 +74,7 @@ describe('rrweb session', () => {
 
     const engine = createReplayEngine({
       sessionId: 'sess_cycle',
+      writeKey: 'pk_test_123',
       environment: 'test',
       endpoint: 'https://collector.test/v1/replays/upload',
       schedule: (fn) => fn(),
@@ -90,4 +93,3 @@ describe('rrweb session', () => {
     expect(engine.dump()).toHaveLength(0);
   });
 });
-

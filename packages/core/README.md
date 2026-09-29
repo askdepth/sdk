@@ -99,6 +99,16 @@ const traceHeader = Askdepth.getTraceparent();
 // e.g. "00-4bf92f3577b34da6a3ce929d0e0e4736-00f067aa0ba902b7-01"
 ```
 
+### 5. Session handle
+
+`getSessionId()` returns the active session id after consent is granted. `isInitialized()` is true only while collectors are listening.
+
+```typescript
+if (Askdepth.isInitialized()) {
+  const sessionId = Askdepth.getSessionId();
+}
+```
+
 ---
 
 ## Session Replay Integration

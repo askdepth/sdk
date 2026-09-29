@@ -130,7 +130,7 @@ const manifest = ReplaySliceManifestSchema.parse({
 
 ## Wire Protocol Versioning
 
-`@askdepth/contracts` exports `PROTOCOL_VERSION = 1`. Protocol versions change strictly on breaking wire changes, following SemVer rules defined in [`docs/VERSIONING_AND_LIFECYCLE.md`](https://github.com/askdepth/sdk/blob/master/docs/VERSIONING_AND_LIFECYCLE.md).
+This worktree exports `PROTOCOL_VERSION = '0.1.0'`; the package version remains `0.1.1` until Changesets generates the next package release. The already published `0.1.1` artifact is immutable and does not receive this source change. While the protocol is pre-1.0, incompatible wire changes increment its minor version; after 1.0.0, they increment the major version. Package releases and wire protocol versions remain separate version axes, as described in [`docs/VERSIONING_AND_LIFECYCLE.md`](https://github.com/askdepth/sdk/blob/master/docs/VERSIONING_AND_LIFECYCLE.md).
 
 ---
 
