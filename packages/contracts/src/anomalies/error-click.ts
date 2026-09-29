@@ -9,7 +9,7 @@ export const JsErrorDetailsSchema = z.object({
 });
 
 export const NetworkErrorDetailsSchema = z.object({
-  method: z.string().regex(/^[A-Z]+$/).max(12),
+  method: z.string().regex(/^[!#$%&'*+.^_`|~0-9A-Z-]{1,32}$/i),
   url: z.string().min(1).max(2_048),
   status_code: z.number().int().min(0).max(599),
   duration_ms: z.number().nonnegative().max(600_000),

@@ -1,7 +1,9 @@
 import { createUnplugin } from 'unplugin';
+import { writePrivateComponentMap } from './component-map.js';
+import type { ComponentMapOptions } from './component-map.js';
 import { shouldTransform, transformJsxSource } from './transformers/jsx-attribute.js';
 
-export interface AskdepthPluginOptions {
+export interface AskdepthPluginOptions extends ComponentMapOptions {
   /** `production` hashes file locations. Any other value keeps `path:line:column`. */
   environment?: string;
 }
@@ -19,6 +21,7 @@ export function createAskdepthPlugin(options: AskdepthPluginOptions = {}) {
     transform(code: string, id: string) {
       const result = transformJsxSource(code, id, { production });
       if (!result) return null;
+      if (production) writePrivateComponentMap(id, code, result, options);
       return { code: result.code, map: result.map ?? undefined };
     },
   };

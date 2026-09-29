@@ -18,11 +18,15 @@ export default defineConfig([
     platform: 'browser',
     external: ['react', 'react/jsx-runtime', 'react-dom', '@askdepth/core'],
     async onSuccess() {
-      // esbuild drops `use client` while bundling. Next.js reads it from the package entry.
+      // tsup's tree shaking drops directive banners, so shift the map with the output.
       for (const file of ['dist/index.mjs', 'dist/index.cjs']) {
         const source = readFileSync(file, 'utf8');
         if (source.startsWith("'use client'") || source.startsWith('"use client"')) continue;
         writeFileSync(file, `'use client';\n${source}`);
+        const mapFile = `${file}.map`;
+        const map = JSON.parse(readFileSync(mapFile, 'utf8')) as { mappings: string };
+        map.mappings = `;${map.mappings}`;
+        writeFileSync(mapFile, JSON.stringify(map));
       }
     },
     esbuildOptions(options) {

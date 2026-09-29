@@ -24,11 +24,9 @@ export function withAskdepth<T extends AskdepthNextConfig>(
     ...base,
     webpack(config, context) {
       const result = previous ? previous(config, context) : config;
-      if (!context.isServer) {
-        result.plugins.push(
-          askdepthWebpackPlugin({ environment: context.dev ? 'development' : 'production' }),
-        );
-      }
+      result.plugins.push(
+        askdepthWebpackPlugin({ environment: context.dev ? 'development' : 'production' }),
+      );
       return result;
     },
   };

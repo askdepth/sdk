@@ -53,7 +53,7 @@ import { AskdepthCatch } from '@askdepth/react';
 
 ## Compiler plugin
 
-Development and staging add `data-askdepth-src="src/components/Button.tsx:42:10"`. Production adds `data-askdepth-id="cmp_"` plus the first 8 hex characters of SHA-256 over that same `path:line:column` label, so source paths stay out of the bundle.
+Development and staging add `data-askdepth-src="src/components/Button.tsx:42:10"`. Production adds `data-askdepth-id="cmp_"` plus the first 8 hex characters of SHA-256 over that same `path:line:column` label, so source paths stay out of the bundle. Production builds also write private lookup files to `.askdepth/component-maps/<build-id>/`; set `ASKDEPTH_BUILD_ID` to your deployment ID and retain these files in private build artifacts for resolving IDs later. Set `ASKDEPTH_COMPONENT_MAP_DIR` to move the output, including for Turbopack. For the Vite, Webpack, and Rspack plugins, `buildId` and `mappingDir` override the environment defaults. Keep the mapping directory outside publicly served assets.
 
 ```ts
 import { askdepthVitePlugin } from '@askdepth/react/plugin';
@@ -67,7 +67,7 @@ export default defineConfig({
 const { withAskdepth } = require('@askdepth/react/plugin');
 
 module.exports = withAskdepth({
-  // existing Next config; the helper adds the plugin to client webpack builds
+  // existing Next config; the helper adds the plugin to client and server webpack builds
 });
 ```
 
@@ -76,8 +76,8 @@ Or push the plugin yourself in a Webpack build:
 ```js
 const { askdepthWebpackPlugin } = require('@askdepth/react/plugin');
 
-webpack(config, { isServer }) {
-  if (!isServer) config.plugins.push(askdepthWebpackPlugin({ environment: process.env.NODE_ENV }));
+webpack(config) {
+  config.plugins.push(askdepthWebpackPlugin({ environment: process.env.NODE_ENV }));
   return config;
 }
 ```

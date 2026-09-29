@@ -34,10 +34,46 @@ describe('telemetry transport', () => {
     const second = JSON.parse(String((fetchMock.mock.calls[1]![1] as RequestInit).body));
     expect(second.batch_id).toBe(first.batch_id);
     expect(second.events[0].event_id).toBe(first.events[0].event_id);
+    expect(first.events[0].timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+    expect(second.events[0].timestamp).toBe(first.events[0].timestamp);
     expect(first.protocol_version).toBe('0.1.0');
     expect(first).not.toHaveProperty('project_id');
     expect(TelemetryEnvelopeSchema.parse(first)).toEqual(first);
     const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
     expect(headers['x-askdepth-write-key']).toBe('public_arbitrary_write_key');
+  });
+
+  it('sends queued events on page hide when an earlier batch is still pending', async () => {
+    let resolveFirst: (response: Response) => void = () => undefined;
+    const firstRequest = new Promise<Response>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const fetchMock = vi.fn<() => Promise<Response>>()
+      .mockReturnValueOnce(firstRequest)
+      .mockResolvedValue(new Response(null, { status: 202 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const queue = createQueue({
+      meta: () => ({
+        environment: 'development' as const,
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        endpoint: 'https://ingest.test/v1/telemetry',
+        writeKey: 'public_arbitrary_write_key',
+      }),
+      onKill: () => undefined,
+    });
+
+    queue.enqueue({ type: 'track', name: 'in_flight' }, true);
+    queue.enqueue({ type: 'track', name: 'queued_before_hide' }, false);
+    queue.beacon();
+
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+    const requests = fetchMock.mock.calls.map((call) => JSON.parse(String(call[1]?.body)));
+    expect(requests[0].events[0].name).toBe('in_flight');
+    expect(requests[1].batch_id).toBe(requests[0].batch_id);
+    expect(requests[2].events.map((event: { name: string }) => event.name)).toEqual(['queued_before_hide']);
+    expect(queue.size()).toBe(0);
+
+    resolveFirst(new Response(null, { status: 202 }));
+    queue.stop();
   });
 });

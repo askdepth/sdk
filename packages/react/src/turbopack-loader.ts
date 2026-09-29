@@ -1,4 +1,5 @@
 import { transformJsxSource } from './plugin/transformers/jsx-attribute.js';
+import { writePrivateComponentMap } from './plugin/component-map.js';
 import type { JsxTransformResult } from './plugin/transformers/jsx-attribute.js';
 
 interface LoaderContext {
@@ -11,6 +12,7 @@ export default function askdepthTurbopackLoader(this: LoaderContext | void, sour
   const production = process.env.NODE_ENV === 'production';
   const result = transformJsxSource(String(source), filename, { production });
   if (!result) return String(source);
+  if (production) writePrivateComponentMap(filename, String(source), result);
   if (this?.callback) {
     this.callback(null, result.code, result.map ?? undefined);
     return;

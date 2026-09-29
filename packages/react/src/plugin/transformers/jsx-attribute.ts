@@ -14,6 +14,7 @@ export interface JsxTransformOptions {
 export interface JsxTransformResult {
   code: string;
   map: ReturnType<typeof import('@babel/generator').default>['map'] | null;
+  locations: Record<string, string>;
 }
 
 type Traverse = {
@@ -71,6 +72,32 @@ function marker(filename: string, line: number, column: number, production: bool
   const label = sourceLabel(filename, line, column);
   if (production) return { name: ASKDEPTH_ID_ATTR, value: hashComponentId(label) };
   return { name: ASKDEPTH_SRC_ATTR, value: label };
+}
+
+function isFragmentName(path: NodePath<t.JSXOpeningElement>): boolean {
+  const name = path.node.name;
+  if (t.isJSXIdentifier(name)) {
+    const binding = path.scope.getBinding(name.name);
+    if (!binding?.path.isImportSpecifier()) return false;
+    const imported = binding.path.node.imported;
+    return (t.isIdentifier(imported) ? imported.name : imported.value) === 'Fragment' &&
+      !!binding.path.parent && t.isImportDeclaration(binding.path.parent) && binding.path.parent.source.value === 'react';
+  }
+  if (!t.isJSXMemberExpression(name) || !t.isJSXIdentifier(name.object) || name.property.name !== 'Fragment') return false;
+  const binding = path.scope.getBinding(name.object.name);
+  if (!binding) return name.object.name === 'React';
+  return (binding.path.isImportDefaultSpecifier() || binding.path.isImportNamespaceSpecifier()) &&
+    !!binding.path.parent && t.isImportDeclaration(binding.path.parent) && binding.path.parent.source.value === 'react';
+}
+
+function isCompiledFragment(path: NodePath<t.CallExpression>): boolean {
+  const type = path.node.arguments[0];
+  if (!type || !t.isIdentifier(type)) return false;
+  const binding = path.scope.getBinding(type.name);
+  if (!binding?.path.isImportSpecifier()) return false;
+  const imported = binding.path.node.imported;
+  return (t.isIdentifier(imported) ? imported.name : imported.value) === 'Fragment' &&
+    !!binding.path.parent && t.isImportDeclaration(binding.path.parent) && JSX_RUNTIME.has(binding.path.parent.source.value);
 }
 
 function hasJsxAttribute(opening: t.JSXOpeningElement, name: string): boolean {
@@ -131,19 +158,23 @@ export function transformJsxSource(code: string, filename: string, options: JsxT
   }
 
   let changed = false;
+  const locations: Record<string, string> = {};
   const file = filename.split('?')[0]?.split('#')[0] ?? filename;
 
   traverse(ast, {
     JSXOpeningElement(path: NodePath<t.JSXOpeningElement>) {
+      if (isFragmentName(path)) return;
       const loc = locationOf(path.node, file, null);
       if (!loc) return;
       const attr = marker(file, loc.line, loc.column, options.production);
       if (hasJsxAttribute(path.node, attr.name)) return;
       path.node.attributes.push(t.jsxAttribute(t.jsxIdentifier(attr.name), t.stringLiteral(attr.value)));
+      if (options.production) locations[attr.value] = sourceLabel(file, loc.line, loc.column);
       changed = true;
     },
     CallExpression(path: NodePath<t.CallExpression>) {
       if (!jsxRuntimeSource(path)) return;
+      if (isCompiledFragment(path)) return;
       const props = path.node.arguments[1];
       if (!props || !t.isObjectExpression(props)) return;
       const loc = locationOf(path.node, file, path);
@@ -151,11 +182,12 @@ export function transformJsxSource(code: string, filename: string, options: JsxT
       const attr = marker(file, loc.line, loc.column, options.production);
       if (hasObjectProperty(props, attr.name)) return;
       props.properties.push(t.objectProperty(t.stringLiteral(attr.name), t.stringLiteral(attr.value)));
+      if (options.production) locations[attr.value] = sourceLabel(file, loc.line, loc.column);
       changed = true;
     },
   });
 
   if (!changed) return null;
   const generated = generate(ast, { sourceMaps: true, sourceFileName: file, comments: true }, code);
-  return { code: generated.code, map: generated.map ?? null };
+  return { code: generated.code, map: generated.map ?? null, locations };
 }

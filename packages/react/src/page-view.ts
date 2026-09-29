@@ -3,6 +3,9 @@ import { PAGE_VIEW_EVENT } from './constants.js';
 
 let activeRefCount = 0;
 let restore: (() => void) | null = null;
+let pageViewNotify: (() => void) | null = null;
+let unsubscribeConsent: (() => void) | null = null;
+let initialPageViewPending = false;
 
 const MAX_INPUT_PATH_LENGTH = 4_096;
 const MAX_PATH_SEGMENTS = 12;
@@ -44,8 +47,10 @@ export function startPageViews(): () => void {
         Askdepth.track(PAGE_VIEW_EVENT, { url: currentUrl() });
       }
     };
+    pageViewNotify = notify;
 
     // Emit initial page view on mount
+    initialPageViewPending = !Askdepth.isInitialized();
     notify();
 
     const currentPushState = window.history.pushState;
@@ -85,18 +90,25 @@ export function startPageViews(): () => void {
     if (!isReplaceWrapped) {
       window.history.replaceState = wrappedReplaceState;
     }
-    window.addEventListener('popstate', notify);
-
     restore = () => {
-      if (window.history.pushState === wrappedPushState) {
-        window.history.pushState = originalPushState;
-      }
-      if (window.history.replaceState === wrappedReplaceState) {
-        window.history.replaceState = originalReplaceState;
-      }
-      window.removeEventListener('popstate', notify);
+      // A replay or router wrapper may still sit above ours. Keep our wrapper so a remount can reuse it.
+      if (window.history.pushState !== wrappedPushState || window.history.replaceState !== wrappedReplaceState) return;
+      window.history.pushState = originalPushState;
+      window.history.replaceState = originalReplaceState;
       restore = null;
+      pageViewNotify = null;
+      initialPageViewPending = false;
     };
+  }
+
+  if (activeRefCount === 1 && pageViewNotify) {
+    window.addEventListener('popstate', pageViewNotify);
+    unsubscribeConsent = Askdepth.onConsentChange((consent) => {
+      if (consent === 'granted' && initialPageViewPending) {
+        initialPageViewPending = false;
+        pageViewNotify?.();
+      }
+    });
   }
 
   let unsubscribed = false;
@@ -104,13 +116,18 @@ export function startPageViews(): () => void {
     if (unsubscribed) return;
     unsubscribed = true;
     activeRefCount = Math.max(0, activeRefCount - 1);
-    if (activeRefCount === 0 && restore) {
-      restore();
+    if (activeRefCount === 0) {
+      if (pageViewNotify) window.removeEventListener('popstate', pageViewNotify);
+      unsubscribeConsent?.();
+      unsubscribeConsent = null;
+      restore?.();
     }
   };
 }
 
 export function resetPageViewsForTests(): void {
+  if (pageViewNotify && typeof window !== 'undefined') window.removeEventListener('popstate', pageViewNotify);
+  unsubscribeConsent?.();
   const currentPush = typeof window !== 'undefined' ? window.history?.pushState : undefined;
   const currentReplace = typeof window !== 'undefined' ? window.history?.replaceState : undefined;
   const origPush = (currentPush as unknown as { __askdepth_original__?: History['pushState'] })?.__askdepth_original__;
@@ -124,4 +141,7 @@ export function resetPageViewsForTests(): void {
   }
   activeRefCount = 0;
   restore = null;
+  pageViewNotify = null;
+  unsubscribeConsent = null;
+  initialPageViewPending = false;
 }

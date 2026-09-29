@@ -66,6 +66,7 @@ let terminated = false;
 let warned = false;
 let configWarned = false;
 const componentResolvers = new Set<{ resolver: ComponentResolver }>();
+const consentListeners = new Set<(consent: ConsentState) => void>();
 
 function safeName(value: string): string | null {
   return /^[A-Za-z_$][A-Za-z0-9_$.() -]*$/.test(value) && value.length <= 120 ? value : null;
@@ -363,12 +364,23 @@ export function init(options: AskdepthInitOptions): typeof Askdepth {
 
 export function setConsent(consent: ConsentState): void {
   if (!isBrowser() || terminated || !runtime) return;
+  const previous = runtime.consent;
   runtime.consent = consent;
   if (consent !== 'granted') {
     stopCollectors(runtime);
-    return;
+  } else if (runtime.sampled) {
+    start(runtime);
   }
-  if (runtime.sampled) start(runtime);
+  if (previous !== consent) {
+    for (const listener of consentListeners) {
+      try { listener(consent); } catch { /* Listener failures must not stop collection. */ }
+    }
+  }
+}
+
+export function onConsentChange(listener: (consent: ConsentState) => void): () => void {
+  consentListeners.add(listener);
+  return () => { consentListeners.delete(listener); };
 }
 
 export function revokeConsent(): void {
@@ -427,6 +439,7 @@ export function isInitialized(): boolean {
 export const Askdepth = {
   init,
   setConsent,
+  onConsentChange,
   revokeConsent,
   track,
   registerComponentResolver,
@@ -439,6 +452,7 @@ export const Askdepth = {
 
 export function resetSdkForTests(): void {
   componentResolvers.clear();
+  consentListeners.clear();
   terminated = false;
   warned = false;
   configWarned = false;

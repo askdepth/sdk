@@ -39,11 +39,32 @@ describe('TelemetryEnvelope', () => {
       batch_id: batchId,
       sent_at: new Date().toISOString(),
       events: [
-        { event_id: eventId, ...TrackEventSchema.parse({ type: 'track', name: 'signup' }) },
-        { event_id: 'd1ce0b0c-0985-41b1-85e9-b1f7e42ab7aa', ...IdentifyEventSchema.parse({ type: 'identify', user_id: 'user_1' }) },
+        { event_id: eventId, timestamp: '2026-09-29T12:00:00.000Z', ...TrackEventSchema.parse({ type: 'track', name: 'signup' }) },
+        { event_id: 'd1ce0b0c-0985-41b1-85e9-b1f7e42ab7aa', timestamp: '2026-09-29T12:00:01.000Z', ...IdentifyEventSchema.parse({ type: 'identify', user_id: 'user_1' }) },
       ],
     });
     expect(tracked.events).toHaveLength(2);
+    expect(tracked.events[0]?.timestamp).toBe('2026-09-29T12:00:00.000Z');
+  });
+
+  it('requires an occurrence timestamp on each event envelope', () => {
+    const base = {
+      protocol_version: '0.1.0',
+      sdk_name: '@askdepth/core',
+      sdk_version: '1.0.0',
+      environment: 'production',
+      session_id: sessionId,
+      batch_id: batchId,
+      sent_at: '2026-09-29T12:00:00.000Z',
+    };
+    expect(TelemetryEnvelopeSchema.safeParse({
+      ...base,
+      events: [{ event_id: eventId, timestamp: '2026-09-29T11:59:59.000Z', type: 'track', name: 'signup' }],
+    }).success).toBe(true);
+    expect(TelemetryEnvelopeSchema.safeParse({
+      ...base,
+      events: [{ event_id: eventId, type: 'track', name: 'signup' }],
+    }).success).toBe(false);
   });
 
   it('rejects an invalid batch or event id and a bad environment', () => {
@@ -133,7 +154,7 @@ describe('anomaly schemas', () => {
         target_selector: '.submit-btn',
         error_type: 'network_error',
         error_details: {
-          method: 'POST',
+          method: 'M-SEARCH',
           url: '/api/pay',
           status_code: 500,
           duration_ms: 40,
@@ -141,6 +162,14 @@ describe('anomaly schemas', () => {
         time_to_error_ms: 2000,
       }).error_type,
     ).toBe('network_error');
+
+    expect(ErrorClickEventSchema.parse({
+      type: 'ERROR_CLICK',
+      target_selector: '.version',
+      error_type: 'network_error',
+      error_details: { method: 'VERSION-CONTROL', url: '/api/version', status_code: 501, duration_ms: 12 },
+      time_to_error_ms: 50,
+    }).error_details.method).toBe('VERSION-CONTROL');
 
     expect(
       ErrorClickEventSchema.safeParse({

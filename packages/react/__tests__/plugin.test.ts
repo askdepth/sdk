@@ -1,4 +1,7 @@
 import { createHash } from 'node:crypto';
+import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import {
   askdepthRspackPlugin,
@@ -61,6 +64,33 @@ describe('jsx attribute transform', () => {
     );
   });
 
+  it('stamps children without adding attributes to React fragments', () => {
+    const raw = transformJsxSource(
+      "import { Fragment } from 'react';\nexport const view = <><Fragment><button /></Fragment><React.Fragment><span /></React.Fragment></>;\n",
+      'src/Fragments.tsx',
+      { production: false },
+    );
+    expect(raw?.code).toMatch(/<Fragment>/);
+    expect(raw?.code).toMatch(/<React\.Fragment>/);
+    expect(raw?.code).not.toMatch(/<(?:React\.)?Fragment\s+data-askdepth-/);
+    expect(raw?.code.match(/data-askdepth-src/g)).toHaveLength(2);
+
+    const compiled = transformJsxSource(
+      "import { Fragment, jsx } from 'react/jsx-runtime';\nexport const view = jsx(Fragment, { children: jsx('button', {}) });\n",
+      'src/Fragments.tsx',
+      { production: false },
+    );
+    expect(compiled?.code.match(/data-askdepth-src/g)).toHaveLength(1);
+
+    const aliased = transformJsxSource(
+      "import React, { Fragment as F } from 'react';\nexport const view = <><F><i /></F><React.Fragment><b /></React.Fragment></>;\n",
+      'src/Aliased.tsx',
+      { production: false },
+    );
+    expect(aliased?.code).not.toMatch(/<(?:F|React\.Fragment)\s+data-askdepth-/);
+    expect(aliased?.code.match(/data-askdepth-src/g)).toHaveLength(2);
+  });
+
   it('stamps compiled jsx and jsxDEV calls, not user functions named jsx', () => {
     const compiled = [
       "import { jsx } from 'react/jsx-runtime';",
@@ -111,6 +141,24 @@ describe('jsx attribute transform', () => {
 });
 
 describe('unplugin adapters', () => {
+  it('writes a private production lookup artifact tied to a build ID', () => {
+    const mappingDir = mkdtempSync(join(tmpdir(), 'askdepth-maps-'));
+    try {
+      const transformed = createAskdepthPlugin({ environment: 'production', buildId: 'build-123', mappingDir })
+        .transform(BUTTON, 'src/components/Button.tsx');
+      expect(transformed?.code).toContain('data-askdepth-id');
+      expect(transformed?.code).not.toContain('Button.tsx');
+      const files = readdirSync(join(mappingDir, 'build-123'));
+      expect(files).toHaveLength(1);
+      const artifact = JSON.parse(readFileSync(join(mappingDir, 'build-123', files[0]!), 'utf8'));
+      expect(artifact).toMatchObject({
+        buildId: 'build-123',
+        locations: { [hashComponentId('src/components/Button.tsx:2:10')]: 'src/components/Button.tsx:2:10' },
+      });
+    } finally {
+      rmSync(mappingDir, { recursive: true, force: true });
+    }
+  });
   it('passes a source map for transformed JSX to the bundler', () => {
     const result = createAskdepthPlugin({ environment: 'development' }).transform(
       BUTTON,
@@ -159,7 +207,7 @@ describe('unplugin adapters', () => {
     }
   });
 
-  it('composes a Next.js webpack hook and skips the server compiler', () => {
+  it('composes a Next.js webpack hook for both client and server compilers', () => {
     const client = { plugins: [] as unknown[] };
     const composed = withAskdepth({
       webpack(config) {
@@ -174,7 +222,7 @@ describe('unplugin adapters', () => {
 
     const server = { plugins: [] as unknown[] };
     withAskdepth().webpack(server, { isServer: true, dev: false });
-    expect(server.plugins).toHaveLength(0);
+    expect(server.plugins).toHaveLength(1);
 
     const prod = { plugins: [] as unknown[] };
     withAskdepth().webpack(prod, { isServer: false, dev: false });
@@ -216,6 +264,32 @@ describe('unplugin adapters', () => {
       expect(hashed).toContain('data-askdepth-id');
     } finally {
       process.env.NODE_ENV = previous;
+    }
+  });
+
+  it('writes a private component map from the production Turbopack loader', () => {
+    const mappingDir = mkdtempSync(join(tmpdir(), 'askdepth-turbo-maps-'));
+    const previousNodeEnv = process.env.NODE_ENV;
+    const previousBuildId = process.env.ASKDEPTH_BUILD_ID;
+    const previousMappingDir = process.env.ASKDEPTH_COMPONENT_MAP_DIR;
+    process.env.NODE_ENV = 'production';
+    process.env.ASKDEPTH_BUILD_ID = 'turbo-build';
+    process.env.ASKDEPTH_COMPONENT_MAP_DIR = mappingDir;
+    try {
+      const result = askdepthTurbopackLoader.call({ resourcePath: 'src/Button.tsx' }, BUTTON);
+      expect(result).toContain('data-askdepth-id');
+      const files = readdirSync(join(mappingDir, 'turbo-build'));
+      expect(files).toHaveLength(1);
+      const artifact = JSON.parse(readFileSync(join(mappingDir, 'turbo-build', files[0]!), 'utf8'));
+      expect(artifact.locations[hashComponentId('src/Button.tsx:2:10')]).toBe('src/Button.tsx:2:10');
+    } finally {
+      if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = previousNodeEnv;
+      if (previousBuildId === undefined) delete process.env.ASKDEPTH_BUILD_ID;
+      else process.env.ASKDEPTH_BUILD_ID = previousBuildId;
+      if (previousMappingDir === undefined) delete process.env.ASKDEPTH_COMPONENT_MAP_DIR;
+      else process.env.ASKDEPTH_COMPONENT_MAP_DIR = previousMappingDir;
+      rmSync(mappingDir, { recursive: true, force: true });
     }
   });
 

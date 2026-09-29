@@ -16,7 +16,7 @@ function boot(): ReturnType<typeof vi.fn> {
 async function events(fetchMock: ReturnType<typeof vi.fn>): Promise<Array<Record<string, unknown>>> {
   await vi.advanceTimersByTimeAsync(2_000);
   return fetchMock.mock.calls
-    .filter((call) => String(call[0]).includes('ingest.test'))
+    .filter((call) => String(call[0]) === 'https://ingest.test/v1')
     .flatMap((call) => (JSON.parse((call[1] as RequestInit).body as string) as { events: Array<Record<string, unknown>> }).events);
 }
 

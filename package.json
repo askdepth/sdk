@@ -17,6 +17,7 @@
     "size": "turbo run size",
     "size-limit": "size-limit",
     "changeset": "changeset",
+    "version-packages": "changeset version",
     "release": "turbo run build && changeset publish",
     "example:vite": "pnpm --filter @askdepth/core exec vite --config ../../examples/react-vite/vite.config.ts",
     "example:vite:build": "pnpm --filter @askdepth/core exec vite build --config ../../examples/react-vite/vite.config.ts",

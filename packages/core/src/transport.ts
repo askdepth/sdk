@@ -18,6 +18,7 @@ export interface EnvelopeMeta {
 export interface Queued {
   event: unknown;
   eventId: string;
+  timestamp: string;
   bytes: number;
   high: boolean;
 }
@@ -63,8 +64,9 @@ export function createQueue(opts: {
 
   const enqueue = (event: unknown, high: boolean) => {
     const eventId = newSessionId();
-    const size = new TextEncoder().encode(JSON.stringify({ event_id: eventId, ...asRecord(event) })).length;
-    items.push({ event, eventId, bytes: size, high });
+    const timestamp = new Date().toISOString();
+    const size = new TextEncoder().encode(JSON.stringify({ ...asRecord(event), event_id: eventId, timestamp })).length;
+    items.push({ event, eventId, timestamp, bytes: size, high });
     bytes += size;
     trim();
     ensureTimer();
@@ -114,7 +116,11 @@ export function createQueue(opts: {
       session_id: meta.sessionId,
       batch_id: newSessionId(),
       sent_at: new Date().toISOString(),
-      events: events.map(({ event, eventId }) => ({ event_id: eventId, ...asRecord(event) })),
+      events: events.map(({ event, eventId, timestamp }) => ({
+        ...asRecord(event),
+        event_id: eventId,
+        timestamp,
+      })),
     });
 
   const retryDelay = (headers: Headers | null, attempts: number): number => {
@@ -187,7 +193,27 @@ export function createQueue(opts: {
 
   const beacon = () => {
     // sendBeacon cannot carry the required write-key header; fetch keepalive preserves authentication.
-    void flush();
+    const meta = opts.meta();
+    if (!meta?.endpoint) {
+      clear();
+      return;
+    }
+    const sendKeepalive = (body: string) => {
+      void getNativeFetch()(meta.endpoint, {
+        method: 'POST',
+        headers: headersOf(meta),
+        body,
+        keepalive: true,
+      }).catch(() => undefined);
+    };
+
+    // Resend the stable pending body in case its in-flight request is interrupted by navigation.
+    if (pending) sendKeepalive(pending.body);
+    if (items.length === 0) return;
+
+    const queued = items.splice(0, items.length);
+    bytes = 0;
+    sendKeepalive(bodyOf(queued, meta));
   };
 
   return { enqueue, clear, flush, pause, stop, beacon, size: () => items.length };

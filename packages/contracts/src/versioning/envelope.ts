@@ -9,7 +9,10 @@ export type Environment = z.infer<typeof EnvironmentSchema>;
 
 /** A telemetry event with its idempotency key. `type` remains the event discriminator. */
 export const TelemetryEventEnvelopeSchema = z.intersection(
-  z.object({ event_id: z.string().uuid() }),
+  z.object({
+    event_id: z.string().uuid(),
+    timestamp: z.string().datetime({ offset: true }),
+  }),
   TelemetryEventSchema,
 );
 

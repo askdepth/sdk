@@ -313,4 +313,47 @@ describe('<AskdepthProvider>', () => {
     unmount();
     expect(window.history.pushState).toBe(origPush);
   });
+
+  it('reuses its history wrapper after unmount and remount while replay still wraps history', () => {
+    const originalPush = window.history.pushState;
+    const track = vi.spyOn(Askdepth, 'track');
+    const first = render(
+      <AskdepthProvider {...granted()}>
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+    const pageViewPush = window.history.pushState;
+    const replayPush = function (this: History, ...args: Parameters<History['pushState']>) {
+      return pageViewPush.apply(this, args);
+    };
+    window.history.pushState = replayPush;
+
+    try {
+      first.unmount();
+      const second = render(
+        <AskdepthProvider {...granted()}>
+          <div>child</div>
+        </AskdepthProvider>,
+      );
+      track.mockClear();
+      window.history.pushState({}, '', '/dashboard');
+      expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(1);
+      second.unmount();
+    } finally {
+      window.history.pushState = originalPush;
+    }
+  });
+
+  it('emits the landing page view when consent becomes granted after mount', () => {
+    const track = vi.spyOn(Askdepth, 'track');
+    render(
+      <AskdepthProvider {...granted()} consent="unknown">
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+    expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(1);
+
+    Askdepth.setConsent('granted');
+    expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(2);
+  });
 });
