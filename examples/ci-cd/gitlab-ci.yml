@@ -1,0 +1,33 @@
+stages:
+  - build
+  - upload
+
+build_app:
+  stage: build
+  image: node:20
+  script:
+    - corepack enable
+    - corepack prepare pnpm@latest --activate
+    - pnpm install --frozen-lockfile
+    - pnpm build
+  variables:
+    NODE_ENV: "production"
+    ASKDEPTH_BUILD_ID: "$CI_COMMIT_SHA"
+  artifacts:
+    paths:
+      - .askdepth/
+      - dist/
+      - .next/
+    expire_in: 1 day
+
+upload_component_map:
+  stage: upload
+  image: node:20
+  needs:
+    - build_app
+  script:
+    - npx askdepth-upload-map
+  variables:
+    ASKDEPTH_API_KEY: "$ASKDEPTH_API_KEY"
+    ASKDEPTH_INGEST_URL: "https://in.askdepth.com"
+    ASKDEPTH_BUILD_ID: "$CI_COMMIT_SHA"

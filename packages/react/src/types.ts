@@ -11,6 +11,11 @@ export interface AskdepthContextValue {
 
 type BaseProviderProps = Omit<AskdepthInitOptions, 'writeKey'> & {
   children?: ReactNode;
+  /**
+   * Deployment or build identifier used to resolve component maps in ingestion.
+   * If omitted, falls back to NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA or NEXT_PUBLIC_ASKDEPTH_BUILD_ID.
+   */
+  buildId?: string;
 };
 
 type ProviderWithWriteKey = BaseProviderProps & {

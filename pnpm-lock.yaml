@@ -79,6 +79,9 @@ importers:
 
   packages/react:
     dependencies:
+      '@askdepth/contracts':
+        specifier: workspace:*
+        version: link:../contracts
       '@askdepth/core':
         specifier: workspace:*
         version: link:../core

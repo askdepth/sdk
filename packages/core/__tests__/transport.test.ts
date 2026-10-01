@@ -43,6 +43,35 @@ describe('telemetry transport', () => {
     expect(headers['x-askdepth-write-key']).toBe('public_arbitrary_write_key');
   });
 
+  it('injects x-askdepth-build-id header and envelope build_id when buildId is configured', async () => {
+    const fetchMock = vi
+      .fn<() => Promise<Response>>()
+      .mockResolvedValueOnce(new Response(null, { status: 202 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+    const queue = createQueue({
+      meta: () => ({
+        environment: 'production' as const,
+        sessionId: '550e8400-e29b-41d4-a716-446655440000',
+        endpoint: 'https://ingest.test/v1/telemetry',
+        writeKey: 'public_arbitrary_write_key',
+        buildId: 'build-commit-sha-456',
+      }),
+      onKill: () => undefined,
+    });
+
+    queue.enqueue({ type: 'track', name: 'signup' }, true);
+    await queue.flush();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['x-askdepth-build-id']).toBe('build-commit-sha-456');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.build_id).toBe('build-commit-sha-456');
+    expect(TelemetryEnvelopeSchema.parse(body)).toEqual(body);
+    queue.stop();
+  });
+
   it('retains queued events on page hide while an earlier batch is pending', async () => {
     let resolveFirst: (response: Response) => void = () => undefined;
     const firstRequest = new Promise<Response>((resolve) => {

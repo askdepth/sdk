@@ -112,4 +112,24 @@ describe('consent and init', () => {
     Askdepth.init({ ...options, endpoint: 'https://ingest.test/b' });
     expect(add.mock.calls.length).toBeGreaterThan(afterFirst);
   });
+
+  it('passes buildId into the sent envelope when configured via Askdepth.init', async () => {
+    const fetchMock = vi.fn(async () => new Response(null, { status: 202 }));
+    window.fetch = fetchMock as typeof fetch;
+    Askdepth.init({
+      writeKey: PROJECT,
+      endpoint: 'https://ingest.test/v1/telemetry',
+      consent: 'granted',
+      sampleRate: 1,
+      buildId: 'v1.4.2-prod',
+    });
+    for (let i = 0; i < 10; i += 1) Askdepth.track(`init_test_${i}`);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalled());
+
+    const headers = (fetchMock.mock.calls[0]![1] as RequestInit).headers as Record<string, string>;
+    expect(headers['x-askdepth-build-id']).toBe('v1.4.2-prod');
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0]![1] as RequestInit).body));
+    expect(body.build_id).toBe('v1.4.2-prod');
+  });
 });

@@ -68,3 +68,11 @@ export {
   formatTraceparent,
   type TraceparentParts,
 } from './trace/traceparent.js';
+
+export {
+  ComponentSourceLocationSchema,
+  ComponentMapPayloadSchema,
+  type ComponentSourceLocation,
+  type ComponentMapPayload,
+} from './component-map.js';
+

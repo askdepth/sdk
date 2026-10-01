@@ -30,6 +30,7 @@ export const TelemetryEnvelopeSchema = z.object({
   session_id: SessionIdSchema,
   batch_id: z.string().uuid(),
   sent_at: z.string().datetime({ offset: true }),
+  build_id: z.string().min(1).max(128).optional(),
   events: z.array(TelemetryEventEnvelopeSchema),
 });
 

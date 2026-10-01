@@ -29,7 +29,15 @@
       "import": "./dist/turbopack-loader.mjs",
       "require": "./dist/turbopack-loader.cjs",
       "default": "./dist/turbopack-loader.cjs"
+    },
+    "./upload-map": {
+      "types": "./dist/cli/upload-map.d.ts",
+      "import": "./dist/cli/upload-map.mjs",
+      "require": "./dist/cli/upload-map.cjs"
     }
+  },
+  "bin": {
+    "askdepth-upload-map": "./dist/cli/upload-map.mjs"
   },
   "files": [
     "dist"
@@ -42,6 +50,7 @@
     "size": "size-limit"
   },
   "dependencies": {
+    "@askdepth/contracts": "workspace:*",
     "@askdepth/core": "workspace:*",
     "@babel/generator": "^7.28.0",
     "@babel/parser": "^7.28.0",

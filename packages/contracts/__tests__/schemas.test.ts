@@ -11,6 +11,7 @@ import {
   formatTraceparent,
   TrackEventSchema,
   IdentifyEventSchema,
+  ComponentMapPayloadSchema,
 } from '../src/index.js';
 
 const sessionId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -71,6 +72,35 @@ describe('TelemetryEnvelope', () => {
     }).success).toBe(false);
   });
 
+  it('accepts and validates optional build_id on the envelope', () => {
+    const envelopeWithBuild = createTelemetryEnvelope({
+      sdk_name: '@askdepth/core',
+      sdk_version: '1.4.2',
+      environment: 'production',
+      session_id: sessionId,
+      batch_id: batchId,
+      sent_at: new Date().toISOString(),
+      build_id: 'deploy-abc-123',
+      events: [],
+    });
+    expect(envelopeWithBuild.build_id).toBe('deploy-abc-123');
+    expect(TelemetryEnvelopeSchema.parse(envelopeWithBuild)).toEqual(envelopeWithBuild);
+
+    expect(
+      TelemetryEnvelopeSchema.safeParse({
+        ...envelopeWithBuild,
+        build_id: '',
+      }).success,
+    ).toBe(false);
+
+    expect(
+      TelemetryEnvelopeSchema.safeParse({
+        ...envelopeWithBuild,
+        build_id: 'x'.repeat(129),
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects an invalid batch or event id and a bad environment', () => {
     expect(
       TelemetryEnvelopeSchema.safeParse({
@@ -82,6 +112,59 @@ describe('TelemetryEnvelope', () => {
         batch_id: 'not-a-uuid',
         sent_at: new Date().toISOString(),
         events: [{ event_id: 'not-a-uuid', type: 'track', name: 'signup' }],
+      }).success,
+    ).toBe(false);
+  });
+});
+
+describe('ComponentMapPayloadSchema', () => {
+  it('validates a correct component map payload and locations', () => {
+    const valid = {
+      build_id: 'build-2026-10-01',
+      created_at: new Date().toISOString(),
+      mappings: {
+        cmp_ca8a0529: {
+          file: 'src/components/Button.tsx',
+          line: 42,
+          col: 10,
+          component_name: 'Button',
+        },
+        cmp_1234abcd: {
+          file: 'src/App.tsx',
+          line: 1,
+          col: 0,
+        },
+      },
+    };
+    expect(ComponentMapPayloadSchema.parse(valid)).toEqual(valid);
+  });
+
+  it('rejects bad hashes, negative line/col, or missing required fields', () => {
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'build-1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          invalid_hash: { file: 'a.tsx', line: 1, col: 1 },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'build-1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          cmp_ca8a0529: { file: 'a.tsx', line: -1, col: 1 },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: '',
+        created_at: new Date().toISOString(),
+        mappings: {},
       }).success,
     ).toBe(false);
   });
