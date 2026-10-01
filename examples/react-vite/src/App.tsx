@@ -9,23 +9,35 @@ interface CapturedEvent {
   payload: Record<string, unknown>;
 }
 
-export function App() {
+const LIVE_WRITE_KEY = 'my_dynamic_key_99';
+const LIVE_ENDPOINT = 'https://analytics-ingest-927740258959.europe-west1.run.app/v1/telemetry';
+
+export interface AppProps {
+  writeKey?: string;
+  endpoint?: string;
+}
+
+export function App({
+  writeKey = typeof window !== 'undefined' && window.location.hostname.includes('example.test') ? '550e8400-e29b-41d4-a716-446655440000' : LIVE_WRITE_KEY,
+  endpoint = typeof window !== 'undefined' && window.location.hostname.includes('example.test') ? 'https://ingest.example.test/v1' : LIVE_ENDPOINT,
+}: AppProps = {}) {
   return (
     <AskdepthProvider
-      writeKey="550e8400-e29b-41d4-a716-446655440000"
-      endpoint="https://ingest.example.test/v1"
+      writeKey={writeKey}
+      endpoint={endpoint}
       consent="granted"
       sampleRate={1}
       environment="development"
     >
-      <Dashboard />
+      <Dashboard writeKey={writeKey} endpoint={endpoint} />
     </AskdepthProvider>
   );
 }
 
-function Dashboard() {
+function Dashboard({ writeKey, endpoint }: { writeKey: string; endpoint: string }) {
   const askdepth = useAskdepth();
   const [logs, setLogs] = useState<CapturedEvent[]>([]);
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready (Idle)');
   const [currentPath, setCurrentPath] = useState(window.location.pathname || '/');
   const [shouldCrash, setShouldCrash] = useState(false);
   const [stampedElements, setStampedElements] = useState<Array<{ tag: string; label: string; src?: string; id?: string }>>([]);
@@ -35,7 +47,8 @@ function Dashboard() {
     const originalFetch = window.fetch;
     window.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.includes('ingest.example.test') && init?.body && typeof init.body === 'string') {
+      const isIngest = url.includes('analytics-ingest') || url.includes('ingest.example.test');
+      if (isIngest && init?.body && typeof init.body === 'string') {
         try {
           const body = JSON.parse(init.body) as { events?: Array<Record<string, unknown>> };
           if (Array.isArray(body.events)) {
@@ -53,9 +66,23 @@ function Dashboard() {
         } catch {
           // ignore parse errors
         }
-        return new Response(JSON.stringify({ status: 'ok' }), { status: 200 });
       }
-      return originalFetch(input, init);
+      if (url.includes('ingest.example.test')) {
+        return new Response(JSON.stringify({ status: 'ok' }), { status: 200, headers: { 'content-type': 'application/json' } });
+      }
+      try {
+        const response = await originalFetch(input, init);
+        if (isIngest) {
+          setNetworkStatus(`Delivered: HTTP ${response.status} (${response.statusText || 'OK'})`);
+          console.log(`📡 [Askdepth Delivery Response]: HTTP ${response.status}`);
+        }
+        return response;
+      } catch (err) {
+        if (isIngest) {
+          setNetworkStatus(`Delivery error: ${err}`);
+        }
+        throw err;
+      }
     };
 
     return () => {
@@ -108,6 +135,9 @@ function Dashboard() {
         {/* Connection status card */}
         <Card title="1. Connection & Session Status" badge="Core Ready" badgeColor="#4ade80">
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '0.875rem' }}>
+            <div><strong>Endpoint:</strong> <code style={{ fontSize: '0.75rem', wordBreak: 'break-all' }}>{endpoint}</code></div>
+            <div><strong>Write Key:</strong> <code>{writeKey}</code></div>
+            <div><strong>Delivery:</strong> <span style={{ color: '#38bdf8' }}>{networkStatus}</span></div>
             <div><strong>Ready:</strong> <span style={{ color: askdepth.isReady() ? '#4ade80' : '#fbbf24' }}>{String(askdepth.isReady())}</span></div>
             <div><strong>Session ID:</strong> <code>{askdepth.getSessionId() ?? 'pending...'}</code></div>
             <div><strong>Traceparent:</strong> <code>{askdepth.getTraceparent() ?? 'none'}</code></div>
