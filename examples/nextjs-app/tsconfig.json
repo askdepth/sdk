@@ -1,0 +1,20 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "noEmit": true,
+    "types": ["node"],
+    "typeRoots": [
+      "../../packages/react/node_modules/@types",
+      "../../node_modules/@types"
+    ],
+    "paths": {
+      "next": ["/Users/artemandrosovich/dev/ask-depth/apps/client/node_modules/next"],
+      "next/*": ["/Users/artemandrosovich/dev/ask-depth/apps/client/node_modules/next/*"],
+      "@askdepth/react": ["../../packages/react/dist/index.d.ts"],
+      "@askdepth/core": ["../../packages/core/dist/index.d.ts"],
+      "@askdepth/react/plugin": ["../../packages/react/dist/plugin/index.d.ts"]
+    }
+  },
+  "include": ["**/*.ts", "**/*.tsx"]
+}

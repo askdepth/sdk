@@ -744,56 +744,69 @@
         }
       };
 
-      // Mock Ingest Server interceptor for /v1/replays/upload
-      const slicesPartsMap = new Map();
+      // Ingest monitor & forwarder for /v1/replays/upload
+      const defaultWriteKey = 'my_dynamic_key_99';
+      const defaultEndpoint = 'https://analytics-ingest-927740258959.europe-west1.run.app/v1/replays/upload';
+
       const origFetch = window.fetch;
       window.fetch = async function (input, init) {
         const url = typeof input === 'string' ? input : input instanceof Request ? input.url : '';
         if (url.includes('/v1/replays/upload')) {
           slicesCount++;
           valSlices.textContent = String(slicesCount);
-          log(`[Ingest] Received replay slice chunk #${slicesCount} (${init?.keepalive ? 'keepalive: true' : 'standard'})`);
+          log(`[Ingest] Outbound replay slice chunk #${slicesCount} (${init?.keepalive ? 'keepalive: true' : 'standard'})`);
 
-          try {
-            const rawBody = typeof init?.body === 'string' ? init.body : new TextDecoder().decode(init?.body);
-            const parsed = JSON.parse(rawBody);
-
-            const sliceId = parsed.manifest.slice_id;
-            const parts = slicesPartsMap.get(sliceId) ?? [];
-            parts.push(parsed);
-            slicesPartsMap.set(sliceId, parts);
-
-            manifestViewer.textContent = JSON.stringify(
-              {
-                chunk_received: slicesCount,
-                keepalive_safe: rawBody.length <= 64 * 1024,
-                raw_body_bytes: rawBody.length,
-                manifest: parsed.manifest,
-                payload_part: `${parsed.part_index + 1} of ${parsed.total_parts}`,
-                payload_preview: typeof parsed.payload === 'string' ? parsed.payload.slice(0, 80) + '... (base64 compressed)' : '[Binary Array]',
-              },
-              null,
-              2
-            );
-
-            if (parts.length === parsed.total_parts) {
-              const events = await decompressSlice(parts);
-              if (events && events.length > 0) {
-                log(`[Ingest] Successfully assembled and decompressed ${events.length} rrweb events! Mounting visual player...`);
-                mountReplayer(events);
-              }
+          const getHeader = (h) => {
+            if (init?.headers) {
+              if (typeof init.headers.get === 'function') return init.headers.get(h);
+              return init.headers[h] || init.headers[h.toLowerCase()];
             }
-          } catch (e) {
-            manifestViewer.textContent = `[Ingest] Upload body parse error: ${e}`;
+            return null;
+          };
+
+          const sessionId = getHeader('x-askdepth-session-id');
+          const sliceId = getHeader('x-askdepth-slice-id');
+          const chunkIndex = getHeader('x-askdepth-chunk-index');
+          const totalChunks = getHeader('x-askdepth-total-chunks');
+          const writeKey = getHeader('x-askdepth-write-key');
+          const byteLength = init?.body ? (init.body.byteLength || init.body.length || 0) : 0;
+
+          manifestViewer.textContent = JSON.stringify(
+            {
+              chunk: `${Number(chunkIndex) + 1} of ${totalChunks}`,
+              session_id: sessionId,
+              slice_id: sliceId,
+              write_key: writeKey,
+              payload_bytes: byteLength,
+              endpoint: url,
+            },
+            null,
+            2
+          );
+
+          updateStatus('FLASHING REPLAY TO CLOUD RUN...', 'flashing');
+
+          if (url.includes('ingest.example.test')) {
+            updateStatus('FLASH COMPLETED (MOCK)', 'active');
+            setTimeout(() => updateStatus('RECORDING ACTIVE', 'active'), 2500);
+            return new Response(JSON.stringify({ status: 'ok', slice_id: sliceId }), {
+              status: 200,
+              headers: { 'Content-Type': 'application/json' },
+            });
           }
 
-          updateStatus('FLASH COMPLETED', 'active');
-          setTimeout(() => updateStatus('RECORDING ACTIVE', 'active'), 2500);
-
-          return new Response(JSON.stringify({ status: 'ok', slice_id: 'slice_' + Date.now() }), {
-            status: 200,
-            headers: { 'Content-Type': 'application/json' },
-          });
+          try {
+            const response = await origFetch.apply(this, arguments);
+            const data = await response.clone().json().catch(() => ({}));
+            log(`[Ingest Cloud Run] Chunk #${slicesCount} accepted: HTTP ${response.status} ${JSON.stringify(data)}`);
+            updateStatus(`FLASH DELIVERED (HTTP ${response.status})`, 'active');
+            setTimeout(() => updateStatus('RECORDING ACTIVE', 'active'), 2500);
+            return response;
+          } catch (err) {
+            log(`[Ingest Error] Failed to upload chunk #${slicesCount}: ${err}`);
+            updateStatus('FLASH FAILED', 'idle');
+            throw err;
+          }
         }
         return origFetch.apply(this, arguments);
       };
@@ -808,7 +821,8 @@
 
       const replayEngine = createReplayEngine({
         sessionId: demoSessionId,
-        endpoint: 'https://ingest.example.test/v1/replays/upload',
+        writeKey: defaultWriteKey,
+        endpoint: defaultEndpoint,
         environment: 'development',
         checkoutEveryNms: 45000,
       });
