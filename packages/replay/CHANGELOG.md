@@ -1,5 +1,17 @@
 # @askdepth/replay
 
+## 0.3.0
+
+### Minor Changes
+
+- f022fee: Send replay slices as bounded binary chunks with the shared protocol version and write key, aligning uploads with analytics-ingest.
+
+### Patch Changes
+
+- Updated dependencies [f022fee]
+- Updated dependencies [f022fee]
+  - @askdepth/contracts@0.2.0
+
 ## 0.2.0
 
 ### Minor Changes
