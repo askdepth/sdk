@@ -243,6 +243,27 @@ describe('unplugin adapters', () => {
     expect(result.plugins[1]).not.toBe('user-returned-plugin');
   });
 
+  it('configures turbopack rules in nextConfig and preserves existing experimental settings', () => {
+    const nextWithTurbopack = withAskdepth({
+      experimental: {
+        turbo: {
+          rules: {
+            '*.mdx': { loaders: ['mdx-loader'] },
+          },
+        },
+      },
+    });
+    expect(nextWithTurbopack.experimental?.turbo?.rules).toEqual(
+      expect.objectContaining({
+        '*.{tsx,jsx}': {
+          loaders: ['@askdepth/react/turbopack-loader'],
+          as: '*.tsx',
+        },
+        '*.mdx': { loaders: ['mdx-loader'] },
+      }),
+    );
+  });
+
   it('loads tsx for turbopack and leaves non-jsx source untouched', () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';
@@ -321,3 +342,120 @@ describe('hash helper', () => {
     expect(hashComponentId('src/A.tsx:1:1')).toBe(`cmp_${digest}`);
   });
 });
+
+describe('buildId resolution and manifest consolidation', () => {
+  const envKeys = [
+    'ASKDEPTH_BUILD_ID',
+    'VERCEL_GIT_COMMIT_SHA',
+    'NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA',
+    'GITHUB_SHA',
+    'BUILD_ID',
+  ] as const;
+
+  const originalEnv: Record<string, string | undefined> = {};
+  for (const key of envKeys) originalEnv[key] = process.env[key];
+
+  const clearEnvs = () => {
+    for (const key of envKeys) delete process.env[key];
+  };
+
+  const restoreEnvs = () => {
+    for (const key of envKeys) {
+      if (originalEnv[key] !== undefined) process.env[key] = originalEnv[key];
+      else delete process.env[key];
+    }
+  };
+
+  it('resolves buildId through the complete hierarchy', async () => {
+    const { resolveBuildId } = await import('../src/plugin/index.js');
+    try {
+      clearEnvs();
+      expect(resolveBuildId({ buildId: 'explicit-1' })).toBe('explicit-1');
+
+      process.env.ASKDEPTH_BUILD_ID = 'askdepth-env';
+      expect(resolveBuildId()).toBe('askdepth-env');
+
+      clearEnvs();
+      process.env.VERCEL_GIT_COMMIT_SHA = 'vercel-sha-1';
+      expect(resolveBuildId()).toBe('vercel-sha-1');
+
+      clearEnvs();
+      process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA = 'next-pub-vercel-1';
+      expect(resolveBuildId()).toBe('next-pub-vercel-1');
+
+      clearEnvs();
+      process.env.GITHUB_SHA = 'github-sha-1';
+      expect(resolveBuildId()).toBe('github-sha-1');
+
+      clearEnvs();
+      process.env.BUILD_ID = 'build-id-env-1';
+      expect(resolveBuildId()).toBe('build-id-env-1');
+
+      clearEnvs();
+      expect(resolveBuildId()).toBe(`local-${process.pid}`);
+    } finally {
+      restoreEnvs();
+    }
+  });
+
+  it('parses source location labels correctly', async () => {
+    const { parseSourceLocation } = await import('../src/plugin/index.js');
+    expect(parseSourceLocation('src/components/Button.tsx:42:10')).toEqual({
+      file: 'src/components/Button.tsx',
+      line: 42,
+      col: 10,
+    });
+    expect(parseSourceLocation('src\\App.tsx:1:5')).toEqual({
+      file: 'src/App.tsx',
+      line: 1,
+      col: 5,
+    });
+    expect(parseSourceLocation('invalid')).toBeNull();
+    expect(parseSourceLocation('src/App.tsx:abc:10')).toBeNull();
+    expect(parseSourceLocation(':1:2')).toBeNull();
+  });
+
+  it('consolidates individual chunk files into a single manifest on buildEnd and closeBundle', async () => {
+    const mappingDir = mkdtempSync(join(tmpdir(), 'askdepth-manifest-test-'));
+    try {
+      const plugin = createAskdepthPlugin({
+        environment: 'production',
+        buildId: 'manifest-build-42',
+        mappingDir,
+      });
+
+      plugin.transform(BUTTON, 'src/components/Button.tsx');
+      plugin.transform('export const App = () => <div><span>hello</span></div>;', 'src/App.tsx');
+
+      // Check chunk files are created
+      const chunkDir = join(mappingDir, 'manifest-build-42');
+      expect(readdirSync(chunkDir).length).toBe(2);
+
+      // Trigger buildEnd hook
+      plugin.buildEnd();
+
+      const manifestFile = join(mappingDir, 'manifest-build-42.manifest.json');
+      const manifest = JSON.parse(readFileSync(manifestFile, 'utf8'));
+
+      expect(manifest.build_id).toBe('manifest-build-42');
+      expect(manifest.created_at).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(Object.keys(manifest.mappings).length).toBe(3);
+
+      const btnHash = hashComponentId('src/components/Button.tsx:2:10');
+      expect(manifest.mappings[btnHash]).toEqual({
+        file: 'src/components/Button.tsx',
+        line: 2,
+        col: 10,
+      });
+
+      // Also trigger closeBundle hook (should be idempotent for mappings)
+      plugin.closeBundle();
+      const second = JSON.parse(readFileSync(manifestFile, 'utf8'));
+      expect(second.build_id).toBe(manifest.build_id);
+      expect(second.mappings).toEqual(manifest.mappings);
+    } finally {
+      rmSync(mappingDir, { recursive: true, force: true });
+    }
+  });
+});
+

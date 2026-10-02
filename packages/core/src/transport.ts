@@ -13,6 +13,7 @@ export interface EnvelopeMeta {
   sessionId: string;
   endpoint: string;
   writeKey: string;
+  buildId?: string;
 }
 
 export interface Queued {
@@ -112,6 +113,7 @@ export function createQueue(opts: {
     'x-askdepth-sdk-version': SDK_VERSION,
     'x-askdepth-sdk-name': SDK_NAME,
     'x-askdepth-write-key': meta.writeKey,
+    ...(meta.buildId ? { 'x-askdepth-build-id': meta.buildId } : {}),
   });
 
   const bodyOf = (events: Queued[], meta: EnvelopeMeta) =>
@@ -123,6 +125,7 @@ export function createQueue(opts: {
       session_id: meta.sessionId,
       batch_id: newSessionId(),
       sent_at: new Date().toISOString(),
+      ...(meta.buildId ? { build_id: meta.buildId } : {}),
       events: events.map(({ event, eventId, timestamp }) => ({
         ...asRecord(event),
         event_id: eventId,

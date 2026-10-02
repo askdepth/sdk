@@ -22,11 +22,17 @@ export function getNoopAskdepth(): AskdepthContextValue {
 }
 
 export const AskdepthProvider: React.FC<AskdepthProviderProps> = (props) => {
-  const { children, apiKey, writeKey: propWriteKey, ...restOptions } = props;
+  const { children, apiKey, writeKey: propWriteKey, buildId: propBuildId, ...restOptions } = props;
   const writeKey = propWriteKey ?? apiKey ?? '';
+  const detectedBuildId =
+    typeof process !== 'undefined'
+      ? process.env?.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA ?? process.env?.NEXT_PUBLIC_ASKDEPTH_BUILD_ID
+      : undefined;
+  const buildId = propBuildId ?? detectedBuildId;
   const options: AskdepthInitOptions = {
     ...restOptions,
     writeKey,
+    ...(buildId ? { buildId } : {}),
   };
   const key = JSON.stringify(options);
   const stable = useMemo(() => options, [key]);

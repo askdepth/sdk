@@ -40,6 +40,8 @@ export interface AskdepthInitOptions {
   /** Deprecated client metadata. Ingest derives project ownership from writeKey. */
   projectId?: string;
   environment?: 'production' | 'staging' | 'development';
+  /** Deployment or build identifier used for source and component map correlation. */
+  buildId?: string;
   /** Opt-in session replay. `true` loads `@askdepth/replay` on idle; an object can override the upload URL. */
   replay?: boolean | { endpoint?: string; checkoutEveryNms?: number };
 }
@@ -52,6 +54,7 @@ interface Runtime {
   sessionId: string | null;
   traceId: string;
   queue: Queue;
+  buildId?: string;
   cleanups: Array<() => void>;
   deadStops: Array<() => void>;
   listening: boolean;
@@ -323,11 +326,12 @@ function boot(options: AskdepthInitOptions): void {
         sessionId: runtime.sessionId,
         endpoint: options.endpoint,
         writeKey: options.writeKey,
+        ...(options.buildId !== undefined ? { buildId: options.buildId } : {}),
       };
     },
     onKill: kill,
   });
-  runtime = {
+  const createdRuntime: Runtime = {
     key: keyOf(options),
     options,
     consent,
@@ -335,6 +339,7 @@ function boot(options: AskdepthInitOptions): void {
     sessionId: consent === 'granted' ? newSessionId() : null,
     traceId: '',
     queue,
+    ...(options.buildId !== undefined ? { buildId: options.buildId } : {}),
     cleanups: [],
     deadStops: [],
     listening: false,
@@ -345,7 +350,8 @@ function boot(options: AskdepthInitOptions): void {
       ? { checkoutEveryNms: options.replay.checkoutEveryNms }
       : {}),
   };
-  if (runtime.consent === 'granted' && runtime.sampled) start(runtime);
+  runtime = createdRuntime;
+  if (createdRuntime.consent === 'granted' && createdRuntime.sampled) start(createdRuntime);
 }
 
 export function init(options: AskdepthInitOptions): typeof Askdepth {

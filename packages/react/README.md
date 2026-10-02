@@ -53,7 +53,14 @@ import { AskdepthCatch } from '@askdepth/react';
 
 ## Compiler plugin
 
-Development and staging add `data-askdepth-src="src/components/Button.tsx:42:10"`. Production adds `data-askdepth-id="cmp_"` plus the first 8 hex characters of SHA-256 over that same `path:line:column` label, so source paths stay out of the bundle. Production builds also write private lookup files to `.askdepth/component-maps/<build-id>/`; set `ASKDEPTH_BUILD_ID` to your deployment ID and retain these files in private build artifacts for resolving IDs later. Set `ASKDEPTH_COMPONENT_MAP_DIR` to move the output, including for Turbopack. For the Vite, Webpack, and Rspack plugins, `buildId` and `mappingDir` override the environment defaults. Keep the mapping directory outside publicly served assets.
+Development and staging add `data-askdepth-src="src/components/Button.tsx:42:10"`. Production adds `data-askdepth-id="cmp_"` plus the first 8 hex characters of SHA-256 over that same `path:line:column` label, keeping source file paths completely out of client bundles.
+
+Production builds automatically consolidate component mappings on `buildEnd` / `closeBundle` into a single manifest:
+```
+.askdepth/component-maps/<build-id>.manifest.json
+```
+
+The plugin automatically detects the build ID from environment variables (`ASKDEPTH_BUILD_ID`, `VERCEL_GIT_COMMIT_SHA`, `NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA`, `GITHUB_SHA`, `BUILD_ID`) or options. For Vite, Webpack, and Rspack plugins, `buildId` and `mappingDir` override the defaults. Set `ASKDEPTH_COMPONENT_MAP_DIR` to customize the output folder.
 
 ```ts
 import { askdepthVitePlugin } from '@askdepth/react/plugin';
@@ -67,7 +74,7 @@ export default defineConfig({
 const { withAskdepth } = require('@askdepth/react/plugin');
 
 module.exports = withAskdepth({
-  // existing Next config; the helper adds the plugin to client and server webpack builds
+  // existing Next config; the helper adds the plugin to client/server webpack and turbopack rules
 });
 ```
 
@@ -82,7 +89,7 @@ webpack(config) {
 }
 ```
 
-`withAskdepth` configures the webpack compiler. For Turbopack, configure the package's separate loader in `next.config.js`. The rules below cover both `.tsx` and `.jsx` files and use the current `turbopack` key (Next.js 15.3+ and 16):
+For Turbopack, `withAskdepth` configures the loader automatically. For manual Turbopack loader setup in Next.js:
 
 ```js
 module.exports = {
@@ -101,11 +108,25 @@ module.exports = {
 };
 ```
 
-For Next.js 15.0–15.2, put the same `rules` object under `experimental.turbo` instead of `turbopack`. In Next.js 16, Turbopack is the default and does not apply the `webpack()` hook; use `next dev --webpack` / `next build --webpack` when using `withAskdepth`.
-
-The loader passes its generated source map through the webpack loader callback. Rspack uses `askdepthRspackPlugin` from `@askdepth/react/plugin`. The Vite, Next.js, and Rspack integrations have unit coverage; a real Next.js/Vite application build is not part of this repository's current checks.
-
 Without the plugin, `resolveComponentLocation` walks the Fiber tree from the DOM node and returns the nearest composite component name plus its ancestors.
+
+## Component map upload CLI
+
+Upload the compiled manifest to Askdepth Cloud Ingest using `askdepth-upload-map`:
+
+```bash
+# Upload using auto-detected buildId and env vars
+askdepth-upload-map
+
+# Or explicitly pass options
+askdepth-upload-map \
+  --endpoint https://in.askdepth.com \
+  --api-key your_api_key \
+  --build-id commit_sha \
+  --dir ./.askdepth/component-maps
+```
+
+For CI/CD workflows (GitHub Actions, GitLab CI, Vercel), see [CI/CD Integration Guide](../../examples/ci-cd/README.md) and [Component Mapping Specification](../../docs/COMPONENT_MAPPING.md).
 
 ## Props
 
@@ -115,6 +136,7 @@ Without the plugin, `resolveComponentLocation` walks the Fiber tree from the DOM
 | `projectId` | `string` | | UUID/CUID project identifier. Required when the write key is not itself a UUID/CUID. |
 | `endpoint` | `string` | | Ingest URL. Required before collectors start. |
 | `consent` | `'granted' \| 'denied' \| 'unknown'` | `'unknown'` | User consent state. |
+| `buildId` | `string` | | Deployment / build identifier forwarded to telemetry envelopes. Falls back to `process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA` or `NEXT_PUBLIC_ASKDEPTH_BUILD_ID`. |
 | `replay` | `boolean \| object` | `false` | Session replay, forwarded to core. |
 | `sampleRate` | `number` | `1` | Session sampling probability. |
 | `environment` | `'production' \| 'staging' \| 'development'` | `'production'` | Forwarded to core. |

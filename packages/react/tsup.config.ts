@@ -41,11 +41,18 @@ export default defineConfig([
     entry: {
       'plugin/index': 'src/plugin/index.ts',
       'turbopack-loader': 'src/turbopack-loader.ts',
+      'cli/upload-map': 'src/cli/upload-map.ts',
     },
     format: ['esm', 'cjs'],
     clean: false,
     platform: 'node',
-    external: ['unplugin', /^@babel\//],
+    banner: ({ entry }) => {
+      if (entry === 'cli/upload-map') {
+        return { js: '#!/usr/bin/env node' };
+      }
+      return {};
+    },
+    external: ['unplugin', /^@babel\//, '@askdepth/contracts'],
     outExtension({ format }) {
       return { js: format === 'esm' ? '.mjs' : '.cjs' };
     },

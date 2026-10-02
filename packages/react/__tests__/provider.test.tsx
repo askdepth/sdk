@@ -356,4 +356,62 @@ describe('<AskdepthProvider>', () => {
     Askdepth.setConsent('granted');
     expect(track.mock.calls.filter(([name]) => name === 'page_view')).toHaveLength(2);
   });
+
+  it('passes explicit buildId prop down to Askdepth.init', () => {
+    const init = vi.spyOn(Askdepth, 'init');
+    render(
+      <AskdepthProvider {...granted()} buildId="deploy-hash-999">
+        <div>child</div>
+      </AskdepthProvider>,
+    );
+    expect(init).toHaveBeenCalledWith(
+      expect.objectContaining({
+        buildId: 'deploy-hash-999',
+      }),
+    );
+  });
+
+  it('falls back to NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA and NEXT_PUBLIC_ASKDEPTH_BUILD_ID', () => {
+    const init = vi.spyOn(Askdepth, 'init');
+    const prevVercel = process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA;
+    const prevAskdepth = process.env.NEXT_PUBLIC_ASKDEPTH_BUILD_ID;
+
+    try {
+      delete process.env.NEXT_PUBLIC_ASKDEPTH_BUILD_ID;
+      process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA = 'vercel-commit-abc';
+
+      const first = render(
+        <AskdepthProvider {...granted()}>
+          <div>child 1</div>
+        </AskdepthProvider>,
+      );
+      expect(init).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: 'vercel-commit-abc',
+        }),
+      );
+      first.unmount();
+      init.mockClear();
+
+      delete process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA;
+      process.env.NEXT_PUBLIC_ASKDEPTH_BUILD_ID = 'askdepth-build-xyz';
+
+      const second = render(
+        <AskdepthProvider {...granted()}>
+          <div>child 2</div>
+        </AskdepthProvider>,
+      );
+      expect(init).toHaveBeenCalledWith(
+        expect.objectContaining({
+          buildId: 'askdepth-build-xyz',
+        }),
+      );
+      second.unmount();
+    } finally {
+      if (prevVercel !== undefined) process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA = prevVercel;
+      else delete process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA;
+      if (prevAskdepth !== undefined) process.env.NEXT_PUBLIC_ASKDEPTH_BUILD_ID = prevAskdepth;
+      else delete process.env.NEXT_PUBLIC_ASKDEPTH_BUILD_ID;
+    }
+  });
 });
