@@ -1,5 +1,12 @@
 # @askdepth/replay
 
+## 0.3.1
+
+### Patch Changes
+
+- Updated dependencies [34d4807]
+  - @askdepth/contracts@0.2.1
+
 ## 0.3.0
 
 ### Minor Changes

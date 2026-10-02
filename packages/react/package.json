@@ -1,6 +1,6 @@
 {
   "name": "@askdepth/react",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Askdepth React adapter — provider, fiber component mapping, and a compiler plugin.",
   "license": "MIT",
   "repository": {
