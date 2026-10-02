@@ -44,6 +44,8 @@ Askdepth.init({
   consent: 'granted',
   // Environment tag
   environment: 'production',
+  // Build / deployment identifier (commit SHA or release tag)
+  buildId: process.env.NEXT_PUBLIC_VERCEL_GIT_COMMIT_SHA,
   // Opt-in Session Replay (45s ring buffer, zero-PII masking)
   replay: true,
   // Origins allowed to receive W3C traceparent headers
@@ -129,6 +131,7 @@ When `replay: true` is passed to `Askdepth.init()`:
 | `consent` | `'granted' \| 'denied' \| 'unknown'` | `'unknown'` | Current consent state. |
 | `sampleRate` | `number` | `1` | Session sampling probability (0.0 to 1.0). |
 | `environment` | `'production' \| 'staging' \| 'development'` | `'production'` | Environment metadata tag. |
+| `buildId` | `string` | | Deployment or release identifier forwarded as `x-askdepth-build-id` and envelope `build_id`. |
 | `replay` | `boolean \| { endpoint?: string, checkoutEveryNms?: number }` | `false` | Enable automated 45s session recording. |
 | `allowedTracingOrigins` | `string[]` | `[]` | Domains allowed to receive `traceparent` headers. |
 | `allowRapidClickSelectors` | `string[]` | `[]` | CSS selectors exempt from Rage Click heuristics (e.g. quantity steppers, like buttons). |
