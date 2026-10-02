@@ -243,6 +243,27 @@ describe('unplugin adapters', () => {
     expect(result.plugins[1]).not.toBe('user-returned-plugin');
   });
 
+  it('configures turbopack rules in nextConfig and preserves existing experimental settings', () => {
+    const nextWithTurbopack = withAskdepth({
+      experimental: {
+        turbo: {
+          rules: {
+            '*.mdx': { loaders: ['mdx-loader'] },
+          },
+        },
+      },
+    });
+    expect(nextWithTurbopack.experimental?.turbo?.rules).toEqual(
+      expect.objectContaining({
+        '*.{tsx,jsx}': {
+          loaders: ['@askdepth/react/turbopack-loader'],
+          as: '*.tsx',
+        },
+        '*.mdx': { loaders: ['mdx-loader'] },
+      }),
+    );
+  });
+
   it('loads tsx for turbopack and leaves non-jsx source untouched', () => {
     const previous = process.env.NODE_ENV;
     process.env.NODE_ENV = 'development';

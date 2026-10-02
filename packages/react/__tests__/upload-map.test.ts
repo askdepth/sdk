@@ -24,6 +24,14 @@ describe('upload-map CLI', () => {
       expect(parseArgs(['--write-key', 'wk_1'])).toEqual({
         apiKey: 'wk_1',
       });
+
+      expect(parseArgs(['-h'])).toEqual({
+        help: true,
+      });
+
+      expect(parseArgs(['--help'])).toEqual({
+        help: true,
+      });
     });
   });
 
@@ -35,6 +43,10 @@ describe('upload-map CLI', () => {
         writeFileSync(manifestPath, '{}');
         expect(findManifestFile(tempDir, 'my-build')).toBe(manifestPath);
         expect(findManifestFile(tempDir)).toBe(manifestPath);
+
+        const newerPath = join(tempDir, 'z-build.manifest.json');
+        writeFileSync(newerPath, '{}');
+        expect(findManifestFile(tempDir)).toBe(newerPath);
       } finally {
         rmSync(tempDir, { recursive: true, force: true });
       }
@@ -254,6 +266,69 @@ describe('upload-map CLI', () => {
         log.mockRestore();
         error.mockRestore();
         process.exitCode = 0;
+      }
+    });
+
+    it('displays help text and exits with code 0 on --help or -h', async () => {
+      const log = vi.spyOn(console, 'log').mockImplementation(() => undefined);
+      try {
+        await runCli(['--help']);
+        expect(process.exitCode).toBe(0);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('Usage: askdepth-upload-map'));
+
+        log.mockClear();
+        await runCli(['-h']);
+        expect(process.exitCode).toBe(0);
+        expect(log).toHaveBeenCalledWith(expect.stringContaining('Usage: askdepth-upload-map'));
+      } finally {
+        log.mockRestore();
+        process.exitCode = 0;
+      }
+    });
+  });
+
+  describe('environment variables fallback in uploadComponentMap', () => {
+    it('uses ASKDEPTH_INGEST_URL and ASKDEPTH_WRITE_KEY when options not passed', async () => {
+      const tempDir = mkdtempSync(join(tmpdir(), 'env-fallback-'));
+      const prevUrl = process.env.ASKDEPTH_INGEST_URL;
+      const prevKey = process.env.ASKDEPTH_KEY;
+      const prevWrite = process.env.ASKDEPTH_WRITE_KEY;
+      try {
+        process.env.ASKDEPTH_INGEST_URL = 'https://ingest-env.test';
+        process.env.ASKDEPTH_WRITE_KEY = 'write-key-env';
+        delete process.env.ASKDEPTH_API_KEY;
+
+        const payload = {
+          build_id: 'build-env',
+          created_at: new Date().toISOString(),
+          mappings: {},
+        };
+        writeFileSync(join(tempDir, 'build-env.manifest.json'), JSON.stringify(payload));
+
+        const fetchMock = vi.fn(async (_url: string | URL | Request, init?: RequestInit) => {
+          expect(String(_url)).toBe('https://ingest-env.test/v1/component-maps');
+          const headers = init?.headers as Record<string, string>;
+          expect(headers['x-askdepth-write-key']).toBe('write-key-env');
+          return new Response(JSON.stringify({ ok: true }), { status: 200 });
+        });
+
+        const result = await uploadComponentMap(
+          {
+            dir: tempDir,
+            buildId: 'build-env',
+          },
+          fetchMock as unknown as typeof fetch,
+        );
+
+        expect(result.success).toBe(true);
+      } finally {
+        if (prevUrl !== undefined) process.env.ASKDEPTH_INGEST_URL = prevUrl;
+        else delete process.env.ASKDEPTH_INGEST_URL;
+        if (prevKey !== undefined) process.env.ASKDEPTH_API_KEY = prevKey;
+        else delete process.env.ASKDEPTH_API_KEY;
+        if (prevWrite !== undefined) process.env.ASKDEPTH_WRITE_KEY = prevWrite;
+        else delete process.env.ASKDEPTH_WRITE_KEY;
+        rmSync(tempDir, { recursive: true, force: true });
       }
     });
   });

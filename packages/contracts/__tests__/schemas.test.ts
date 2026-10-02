@@ -167,6 +167,46 @@ describe('ComponentMapPayloadSchema', () => {
         mappings: {},
       }).success,
     ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'b1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          cmp_ca8a0529: { file: '', line: 1, col: 1 },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'b1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          cmp_ca8a0529: { file: 'a'.repeat(513), line: 1, col: 1 },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'b1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          cmp_ca8a0529: { file: 'a.tsx', line: 1.5, col: 1 },
+        },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        build_id: 'b1',
+        created_at: new Date().toISOString(),
+        mappings: {
+          cmp_ca8a0529: { file: 'a.tsx', line: 1, col: 1, component_name: 'n'.repeat(121) },
+        },
+      }).success,
+    ).toBe(false);
   });
 });
 

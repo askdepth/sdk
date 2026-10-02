@@ -8,14 +8,29 @@ export interface UploadMapOptions {
   apiKey?: string | undefined;
   buildId?: string | undefined;
   dir?: string | undefined;
+  help?: boolean | undefined;
 }
+
+export const HELP_TEXT = `Usage: askdepth-upload-map [options]
+
+Upload Askdepth component-to-code mapping to ingestion service.
+
+Options:
+  -e, --endpoint <url>   Askdepth Ingest endpoint URL (env: ASKDEPTH_INGEST_URL, default: https://in.askdepth.com)
+  -k, --api-key <key>    Askdepth API key (env: ASKDEPTH_API_KEY or ASKDEPTH_WRITE_KEY)
+  -b, --build-id <id>    Build ID (env: ASKDEPTH_BUILD_ID, VERCEL_GIT_COMMIT_SHA, etc.)
+  -d, --dir <path>       Directory containing component maps (default: ./.askdepth/component-maps)
+  -h, --help             Display this help message
+`;
 
 export function parseArgs(args: string[]): UploadMapOptions {
   const options: UploadMapOptions = {};
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (!arg) continue;
-    if (arg === '--endpoint' || arg === '-e') {
+    if (arg === '--help' || arg === '-h') {
+      options.help = true;
+    } else if (arg === '--endpoint' || arg === '-e') {
       const val = args[++i];
       if (val !== undefined) options.endpoint = val;
     } else if (arg.startsWith('--endpoint=')) {
@@ -185,6 +200,11 @@ export async function uploadComponentMap(
 
 export async function runCli(args: string[] = process.argv.slice(2)): Promise<void> {
   const options = parseArgs(args);
+  if (options.help) {
+    console.log(HELP_TEXT);
+    process.exitCode = 0;
+    return;
+  }
   const result = await uploadComponentMap(options);
   if (result.success) {
     console.log(`[Askdepth] ${result.message}`);
