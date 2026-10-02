@@ -1,5 +1,13 @@
 # @askdepth/core
 
+## 0.3.1
+
+### Patch Changes
+
+- 34d4807: Add component map generation, buildId forwarding in telemetry envelope, upload CLI tool, and CI/CD integration guides.
+- Updated dependencies [34d4807]
+  - @askdepth/contracts@0.2.1
+
 ## 0.3.0
 
 ### Minor Changes
