@@ -1,7 +1,9 @@
 export interface AnomalySignal {
   anomaly_id: string;
-  type: 'RAGE_CLICK' | 'DEAD_CLICK' | 'ERROR_CLICK';
+  type: "RAGE_CLICK" | "DEAD_CLICK" | "ERROR_CLICK";
   timestamp: number;
+  interaction_id?: string;
+  detector_version?: string;
 }
 
 type Listener = (signal: AnomalySignal) => void;

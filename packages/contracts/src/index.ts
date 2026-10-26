@@ -17,7 +17,7 @@ export {
   type TelemetryEventEnvelope,
   type TelemetryEnvelope,
   type TelemetryEnvelopeHeader,
-} from './versioning/index.js';
+} from "./versioning/index.js";
 
 export {
   AnomalyEventSchema,
@@ -46,7 +46,9 @@ export {
   type JsErrorDetails,
   type NetworkErrorDetails,
   type ErrorClickEvent,
-} from './anomalies/index.js';
+  AnomalyCorrelationSchema,
+  type AnomalyCorrelation,
+} from "./anomalies/index.js";
 
 export {
   REPLAY_SLICE_MAX_MS,
@@ -58,7 +60,7 @@ export {
   type CompressionAlgorithm,
   type ReplaySliceManifest,
   type ReplayUploadPayload,
-} from './replay.js';
+} from "./replay.js";
 
 export {
   TRACEPARENT_PATTERN,
@@ -67,12 +69,13 @@ export {
   parseTraceparent,
   formatTraceparent,
   type TraceparentParts,
-} from './trace/traceparent.js';
+} from "./trace/traceparent.js";
 
 export {
+  isSafeRelativePath,
   ComponentSourceLocationSchema,
   ComponentMapPayloadSchema,
+  computeCanonicalMapChecksum,
   type ComponentSourceLocation,
   type ComponentMapPayload,
-} from './component-map.js';
-
+} from "./component-map.js";

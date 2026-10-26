@@ -1,18 +1,21 @@
-import { z } from 'zod';
-import { TelemetryEventSchema } from '../anomalies/index.js';
-import { ProtocolVersionSchema, PROTOCOL_VERSION } from './protocol.js';
-import { SDKVersionSchema, SessionIdSchema } from './sdk-version.js';
+import { z } from "zod";
+import { TelemetryEventSchema, AnomalyCorrelationSchema } from "../anomalies/index.js";
+import { ProtocolVersionSchema, PROTOCOL_VERSION } from "./protocol.js";
+import { SDKVersionSchema, SessionIdSchema } from "./sdk-version.js";
 
-export const EnvironmentSchema = z.enum(['production', 'staging', 'development']);
+export const EnvironmentSchema = z.enum(["production", "staging", "development"]);
 
 export type Environment = z.infer<typeof EnvironmentSchema>;
 
-/** A telemetry event with its idempotency key. `type` remains the event discriminator. */
+/** A telemetry event with its idempotency key and correlation metadata. `type` remains the event discriminator. */
 export const TelemetryEventEnvelopeSchema = z.intersection(
-  z.object({
-    event_id: z.string().uuid(),
-    timestamp: z.string().datetime({ offset: true }).optional(),
-  }),
+  z.intersection(
+    z.object({
+      event_id: z.string().uuid(),
+      timestamp: z.string().datetime({ offset: true }).optional(),
+    }),
+    AnomalyCorrelationSchema,
+  ),
   TelemetryEventSchema,
 );
 
@@ -37,7 +40,7 @@ export const TelemetryEnvelopeSchema = z.object({
 export type TelemetryEnvelope = z.infer<typeof TelemetryEnvelopeSchema>;
 
 /** Header fields of the envelope, without the event batch. */
-export type TelemetryEnvelopeHeader = Omit<TelemetryEnvelope, 'events'>;
+export type TelemetryEnvelopeHeader = Omit<TelemetryEnvelope, "events">;
 
 export const TelemetryEnvelopeHeaderSchema = TelemetryEnvelopeSchema.omit({
   events: true,
@@ -52,7 +55,7 @@ export function isTelemetryEnvelope(input: unknown): input is TelemetryEnvelope 
 }
 
 export function createTelemetryEnvelope(
-  partial: Omit<TelemetryEnvelope, 'protocol_version'> & {
+  partial: Omit<TelemetryEnvelope, "protocol_version"> & {
     protocol_version?: typeof PROTOCOL_VERSION;
   },
 ): TelemetryEnvelope {

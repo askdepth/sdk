@@ -12,6 +12,8 @@ import {
   TrackEventSchema,
   IdentifyEventSchema,
   ComponentMapPayloadSchema,
+  computeCanonicalMapChecksum,
+  AnomalyCorrelationSchema,
 } from '../src/index.js';
 
 const sessionId = '6ba7b810-9dad-11d1-80b4-00c04fd430c8';
@@ -115,11 +117,43 @@ describe('TelemetryEnvelope', () => {
       }).success,
     ).toBe(false);
   });
+  it('accepts anomaly correlation fields on envelope events', () => {
+    const envelope = createTelemetryEnvelope({
+      sdk_name: '@askdepth/core',
+      sdk_version: '1.4.2',
+      environment: 'production',
+      session_id: sessionId,
+      batch_id: batchId,
+      sent_at: new Date().toISOString(),
+      events: [
+        {
+          event_id: eventId,
+          timestamp: '2026-09-29T12:00:00.000Z',
+          interaction_id: 'int_123',
+          interaction_at: '2026-09-29T11:59:59.000Z',
+          detected_at: '2026-09-29T12:00:00.000Z',
+          detector_version: '0.3.1',
+          sampling_probability: 0.8,
+          type: 'track',
+          name: 'signup',
+        },
+      ],
+    });
+    const parsed = TelemetryEnvelopeSchema.parse(envelope);
+    expect(parsed.events[0]).toMatchObject({
+      interaction_id: 'int_123',
+      detector_version: '0.3.1',
+      sampling_probability: 0.8,
+    });
+  });
 });
 
 describe('ComponentMapPayloadSchema', () => {
   it('validates a correct component map payload and locations', () => {
-    const valid = {
+    const raw = {
+      schema_version: 1 as const,
+      repository: 'askdepth/sdk',
+      commit_sha: 'a'.repeat(40),
       build_id: 'build-2026-10-01',
       created_at: new Date().toISOString(),
       mappings: {
@@ -136,14 +170,26 @@ describe('ComponentMapPayloadSchema', () => {
         },
       },
     };
+    const valid = {
+      ...raw,
+      checksum: computeCanonicalMapChecksum(raw),
+    };
     expect(ComponentMapPayloadSchema.parse(valid)).toEqual(valid);
   });
 
   it('rejects bad hashes, negative line/col, or missing required fields', () => {
+    const base = {
+      schema_version: 1 as const,
+      repository: 'askdepth/sdk',
+      commit_sha: 'a'.repeat(40),
+      checksum: 'b'.repeat(64),
+      build_id: 'build-1',
+      created_at: new Date().toISOString(),
+    };
+
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'build-1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           invalid_hash: { file: 'a.tsx', line: 1, col: 1 },
         },
@@ -152,8 +198,7 @@ describe('ComponentMapPayloadSchema', () => {
 
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'build-1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           cmp_ca8a0529: { file: 'a.tsx', line: -1, col: 1 },
         },
@@ -162,16 +207,15 @@ describe('ComponentMapPayloadSchema', () => {
 
     expect(
       ComponentMapPayloadSchema.safeParse({
+        ...base,
         build_id: '',
-        created_at: new Date().toISOString(),
         mappings: {},
       }).success,
     ).toBe(false);
 
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'b1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           cmp_ca8a0529: { file: '', line: 1, col: 1 },
         },
@@ -180,8 +224,7 @@ describe('ComponentMapPayloadSchema', () => {
 
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'b1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           cmp_ca8a0529: { file: 'a'.repeat(513), line: 1, col: 1 },
         },
@@ -190,8 +233,7 @@ describe('ComponentMapPayloadSchema', () => {
 
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'b1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           cmp_ca8a0529: { file: 'a.tsx', line: 1.5, col: 1 },
         },
@@ -200,11 +242,26 @@ describe('ComponentMapPayloadSchema', () => {
 
     expect(
       ComponentMapPayloadSchema.safeParse({
-        build_id: 'b1',
-        created_at: new Date().toISOString(),
+        ...base,
         mappings: {
           cmp_ca8a0529: { file: 'a.tsx', line: 1, col: 1, component_name: 'n'.repeat(121) },
         },
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        ...base,
+        repository: 'invalid repository format',
+        mappings: {},
+      }).success,
+    ).toBe(false);
+
+    expect(
+      ComponentMapPayloadSchema.safeParse({
+        ...base,
+        commit_sha: 'short_sha',
+        mappings: {},
       }).success,
     ).toBe(false);
   });

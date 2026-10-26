@@ -5,6 +5,8 @@ import {
   parseSourceLocation,
   resolveBuildId,
   resolveMappingDir,
+  resolveRepository,
+  resolveCommitSha,
   writePrivateComponentMap,
 } from './component-map.js';
 import type { ComponentMapOptions } from './component-map.js';
@@ -12,13 +14,15 @@ import { shouldTransform, transformJsxSource } from './transformers/jsx-attribut
 
 export interface AskdepthPluginOptions extends ComponentMapOptions {
   /** `production` hashes file locations. Any other value keeps `path:line:column`. */
-  environment?: string;
+  environment?: string | undefined;
   /** Automatically upload component map to Askdepth ingest server on build completion. */
-  upload?: boolean;
+  upload?: boolean | undefined;
   /** Custom ingest endpoint (defaults to ASKDEPTH_INGEST_URL or https://in.askdepth.com). */
-  endpoint?: string;
-  /** Ingestion API key or write key (defaults to ASKDEPTH_API_KEY or ASKDEPTH_WRITE_KEY). */
-  apiKey?: string;
+  endpoint?: string | undefined;
+  /** Deploy token for component map upload (defaults to ASKDEPTH_DEPLOY_TOKEN or ASKDEPTH_API_KEY). */
+  deployToken?: string | undefined;
+  /** Ingestion API key or write key (alias for deployToken). */
+  apiKey?: string | undefined;
 }
 
 export {
@@ -28,6 +32,8 @@ export {
   resolveMappingDir,
   shouldTransform,
   transformJsxSource,
+  resolveRepository,
+  resolveCommitSha,
   writePrivateComponentMap,
 };
 export type { ComponentMapOptions };
@@ -47,7 +53,10 @@ export function createAskdepthPlugin(options: AskdepthPluginOptions = {}) {
             buildId: manifest.build_id,
             dir: resolveMappingDir(options),
             ...(options.endpoint !== undefined ? { endpoint: options.endpoint } : {}),
+            ...(options.deployToken !== undefined ? { deployToken: options.deployToken } : {}),
             ...(options.apiKey !== undefined ? { apiKey: options.apiKey } : {}),
+            ...(options.repository !== undefined ? { repository: options.repository } : {}),
+            ...(options.commitSha !== undefined ? { commitSha: options.commitSha } : {}),
           });
           if (result.success) {
             console.log(`[Askdepth] ${result.message}`);

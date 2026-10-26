@@ -218,4 +218,20 @@ describe('flash assembly', () => {
     ).rejects.toThrow('Upload failed with status 502');
     expect(fetchMock).toHaveBeenCalledTimes(3);
   });
+  it('updates triggering_anomaly_ids when another anomaly arrives while flash is in-flight', async () => {
+    let resolveUpload!: () => void;
+    const uploadBarrier = new Promise<void>((r) => { resolveUpload = r; });
+    const fetchImpl = vi.fn(async () => {
+      await uploadBarrier;
+      return new Response(null, { status: 200 });
+    });
+    const engine = createReplayEngine({ ...base, fetchImpl });
+    engine.push(snapshot(1_000));
+    const firstFlash = engine.flash('anom_1', 20_000);
+    const secondFlash = engine.flash('anom_2', 20_000);
+    resolveUpload();
+    const [payloads1, payloads2] = await Promise.all([firstFlash, secondFlash]);
+    expect(payloads1[0]?.manifest.triggering_anomaly_ids).toEqual(['anom_1', 'anom_2']);
+    expect(payloads2[0]?.manifest.triggering_anomaly_ids).toEqual(['anom_1', 'anom_2']);
+  });
 });
