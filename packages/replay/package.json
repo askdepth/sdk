@@ -1,6 +1,6 @@
 {
   "name": "@askdepth/replay",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Askdepth session replay — rrweb wrapper with a 45s ring buffer.",
   "publishConfig": {
     "access": "public",
