@@ -1,12 +1,24 @@
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
-import { ComponentMapPayloadSchema, type ComponentMapPayload } from '@askdepth/contracts';
-import { consolidateComponentMap, resolveBuildId } from '../plugin/component-map.js';
+import { existsSync, readdirSync, readFileSync } from "node:fs";
+import { isAbsolute, join, resolve } from "node:path";
+import {
+  ComponentMapPayloadSchema,
+  computeCanonicalMapChecksum,
+  type ComponentMapPayload,
+} from "@askdepth/contracts";
+import {
+  consolidateComponentMap,
+  resolveBuildId,
+  resolveCommitSha,
+  resolveRepository,
+} from "../plugin/component-map.js";
 
 export interface UploadMapOptions {
   endpoint?: string | undefined;
+  deployToken?: string | undefined;
   apiKey?: string | undefined;
   buildId?: string | undefined;
+  repository?: string | undefined;
+  commitSha?: string | undefined;
   dir?: string | undefined;
   help?: boolean | undefined;
 }
@@ -16,11 +28,14 @@ export const HELP_TEXT = `Usage: askdepth-upload-map [options]
 Upload Askdepth component-to-code mapping to ingestion service.
 
 Options:
-  -e, --endpoint <url>   Askdepth Ingest endpoint URL (env: ASKDEPTH_INGEST_URL, default: https://in.askdepth.com)
-  -k, --api-key <key>    Askdepth API key (env: ASKDEPTH_API_KEY or ASKDEPTH_WRITE_KEY)
-  -b, --build-id <id>    Build ID (env: ASKDEPTH_BUILD_ID, VERCEL_GIT_COMMIT_SHA, etc.)
-  -d, --dir <path>       Directory containing component maps (default: ./.askdepth/component-maps)
-  -h, --help             Display this help message
+  -e, --endpoint <url>       Askdepth Ingest endpoint URL (env: ASKDEPTH_INGEST_URL, default: https://in.askdepth.com)
+  -t, --deploy-token <token> Askdepth Deploy Token (env: ASKDEPTH_DEPLOY_TOKEN or ASKDEPTH_API_KEY)
+  -k, --api-key <key>        Alias for --deploy-token
+  -b, --build-id <id>        Build ID (env: ASKDEPTH_BUILD_ID, VERCEL_GIT_COMMIT_SHA, etc.)
+  -r, --repository <repo>    Repository in owner/repo format (env: ASKDEPTH_REPOSITORY, GITHUB_REPOSITORY)
+  -c, --commit-sha <sha>     Git 40-character commit SHA (env: ASKDEPTH_COMMIT_SHA, GITHUB_SHA)
+  -d, --dir <path>           Directory containing component maps (default: ./.askdepth/component-maps)
+  -h, --help                 Display this help message
 `;
 
 export function parseArgs(args: string[]): UploadMapOptions {
@@ -28,28 +43,53 @@ export function parseArgs(args: string[]): UploadMapOptions {
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     if (!arg) continue;
-    if (arg === '--help' || arg === '-h') {
+    if (arg === "--help" || arg === "-h") {
       options.help = true;
-    } else if (arg === '--endpoint' || arg === '-e') {
+    } else if (arg === "--endpoint" || arg === "-e") {
       const val = args[++i];
       if (val !== undefined) options.endpoint = val;
-    } else if (arg.startsWith('--endpoint=')) {
-      options.endpoint = arg.slice('--endpoint='.length);
-    } else if (arg === '--api-key' || arg === '-k' || arg === '--write-key') {
+    } else if (arg.startsWith("--endpoint=")) {
+      options.endpoint = arg.slice("--endpoint=".length);
+    } else if (arg === "--deploy-token" || arg === "-t") {
       const val = args[++i];
-      if (val !== undefined) options.apiKey = val;
-    } else if (arg.startsWith('--api-key=')) {
-      options.apiKey = arg.slice('--api-key='.length);
-    } else if (arg === '--build-id' || arg === '-b') {
+      if (val !== undefined) {
+        options.deployToken = val;
+        options.apiKey = val;
+      }
+    } else if (arg.startsWith("--deploy-token=")) {
+      const val = arg.slice("--deploy-token=".length);
+      options.deployToken = val;
+      options.apiKey = val;
+    } else if (arg === "--api-key" || arg === "-k" || arg === "--write-key") {
+      const val = args[++i];
+      if (val !== undefined) {
+        options.apiKey = val;
+        options.deployToken = val;
+      }
+    } else if (arg.startsWith("--api-key=")) {
+      const val = arg.slice("--api-key=".length);
+      options.apiKey = val;
+      options.deployToken = val;
+    } else if (arg === "--build-id" || arg === "-b") {
       const val = args[++i];
       if (val !== undefined) options.buildId = val;
-    } else if (arg.startsWith('--build-id=')) {
-      options.buildId = arg.slice('--build-id='.length);
-    } else if (arg === '--dir' || arg === '-d') {
+    } else if (arg.startsWith("--build-id=")) {
+      options.buildId = arg.slice("--build-id=".length);
+    } else if (arg === "--repository" || arg === "-r") {
+      const val = args[++i];
+      if (val !== undefined) options.repository = val;
+    } else if (arg.startsWith("--repository=")) {
+      options.repository = arg.slice("--repository=".length);
+    } else if (arg === "--commit-sha" || arg === "-c") {
+      const val = args[++i];
+      if (val !== undefined) options.commitSha = val;
+    } else if (arg.startsWith("--commit-sha=")) {
+      options.commitSha = arg.slice("--commit-sha=".length);
+    } else if (arg === "--dir" || arg === "-d") {
       const val = args[++i];
       if (val !== undefined) options.dir = val;
-    } else if (arg.startsWith('--dir=')) {
-      options.dir = arg.slice('--dir='.length);
+    } else if (arg.startsWith("--dir=")) {
+      options.dir = arg.slice("--dir=".length);
     }
   }
   return options;
@@ -73,7 +113,7 @@ export function findManifestFile(dirPath: string, buildId?: string): string | nu
   }
 
   // Look for any .manifest.json in the directory
-  const files = readdirSync(dirPath).filter((f) => f.endsWith('.manifest.json'));
+  const files = readdirSync(dirPath).filter((f) => f.endsWith(".manifest.json"));
   if (files.length === 1 && files[0]) {
     return join(dirPath, files[0]);
   }
@@ -93,23 +133,25 @@ export async function uploadComponentMap(
   const endpoint = (
     options.endpoint ||
     process.env.ASKDEPTH_INGEST_URL ||
-    'https://in.askdepth.com'
-  ).replace(/\/+$/, '');
+    "https://in.askdepth.com"
+  ).replace(/\/+$/, "");
 
-  const apiKey =
+  const deployToken =
+    options.deployToken ||
     options.apiKey ||
+    process.env.ASKDEPTH_DEPLOY_TOKEN ||
     process.env.ASKDEPTH_API_KEY ||
     process.env.ASKDEPTH_WRITE_KEY;
 
-  if (!apiKey) {
+  if (!deployToken) {
     return {
       success: false,
       status: 401,
-      message: 'Missing API key. Provide --api-key or set ASKDEPTH_API_KEY environment variable.',
+      message: "Missing deploy token. Provide --deploy-token or set ASKDEPTH_DEPLOY_TOKEN environment variable.",
     };
   }
 
-  const rawDir = options.dir || process.env.ASKDEPTH_COMPONENT_MAP_DIR || './.askdepth/component-maps';
+  const rawDir = options.dir || process.env.ASKDEPTH_COMPONENT_MAP_DIR || "./.askdepth/component-maps";
   const mappingDir = isAbsolute(rawDir) ? rawDir : resolve(process.cwd(), rawDir);
 
   let buildId = options.buildId;
@@ -126,13 +168,13 @@ export async function uploadComponentMap(
     return {
       success: false,
       status: 404,
-      message: `No component manifest found in ${mappingDir}${buildId ? ` for build ${buildId}` : ''}. Run production build first.`,
+      message: `No component manifest found in ${mappingDir}${buildId ? ` for build ${buildId}` : ""}. Run production build first.`,
     };
   }
 
   let parsed: unknown;
   try {
-    const content = readFileSync(manifestPath, 'utf8');
+    const content = readFileSync(manifestPath, "utf8");
     parsed = JSON.parse(content);
   } catch (error) {
     return {
@@ -140,6 +182,26 @@ export async function uploadComponentMap(
       status: 400,
       message: `Failed to read or parse manifest at ${manifestPath}: ${error instanceof Error ? error.message : String(error)}`,
     };
+  }
+
+  if (parsed && typeof parsed === "object") {
+    const obj = parsed as Record<string, unknown>;
+    if (!obj.schema_version) {
+      obj.schema_version = 1;
+    }
+    if (!obj.repository) {
+      obj.repository = resolveRepository({ repository: options.repository });
+    }
+    if (!obj.commit_sha) {
+      obj.commit_sha = resolveCommitSha({ commitSha: options.commitSha });
+    }
+    if (!obj.checksum && typeof obj.build_id === "string" && obj.mappings && typeof obj.mappings === "object") {
+      try {
+        obj.checksum = computeCanonicalMapChecksum(obj as any);
+      } catch {
+        // let safeParse surface validation error
+      }
+    }
   }
 
   const result = ComponentMapPayloadSchema.safeParse(parsed);
@@ -152,15 +214,20 @@ export async function uploadComponentMap(
   }
 
   const payload = result.data;
+  const canonicalChecksum = computeCanonicalMapChecksum(payload);
+  if (payload.checksum !== canonicalChecksum) {
+    payload.checksum = canonicalChecksum;
+  }
+
   const targetUrl = `${endpoint}/v1/component-maps`;
 
   try {
     const response = await fetchImpl(targetUrl, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'content-type': 'application/json',
-        'x-askdepth-api-key': apiKey,
-        'x-askdepth-write-key': apiKey,
+        "content-type": "application/json",
+        "x-askdepth-deploy-token": deployToken,
+        "x-askdepth-build-id": payload.build_id,
       },
       body: JSON.stringify(payload),
     });
@@ -175,11 +242,11 @@ export async function uploadComponentMap(
       };
     }
 
-    let responseText = '';
+    let responseText = "";
     try {
       responseText = await response.text();
     } catch {
-      responseText = '';
+      responseText = "";
     }
 
     return {
@@ -216,6 +283,6 @@ export async function runCli(args: string[] = process.argv.slice(2)): Promise<vo
 }
 
 // Execute when run directly as CLI
-if (typeof process !== 'undefined' && process.argv && /(upload-map|askdepth-upload-map)(\.[cm]?js)?$/.test(process.argv[1] ?? '')) {
+if (typeof process !== "undefined" && process.argv && /(upload-map|askdepth-upload-map)(\.[cm]?js)?$/.test(process.argv[1] ?? "")) {
   void runCli();
 }

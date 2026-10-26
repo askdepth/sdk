@@ -1,4 +1,5 @@
 import { resetActivity, markNavigation } from './activity.js';
+import { SDK_VERSION } from './version.js';
 import { publishAnomaly } from './anomaly-bus.js';
 import { isBrowser } from './browser.js';
 import { armDeadClick } from './dead.js';
@@ -144,16 +145,33 @@ function canCollect(): boolean {
   return Boolean(runtime && !terminated && runtime.consent === 'granted' && runtime.sampled && runtime.sessionId);
 }
 
-function emit(event: RageClick | DeadClick | ErrorClick, high: boolean): void {
+function emit(
+  event: (RageClick | DeadClick | ErrorClick | (Record<string, unknown> & { type: string })) & {
+    event_id?: string;
+    interaction_id?: string;
+    detector_version?: string;
+  },
+  high: boolean,
+): void {
   if (!canCollect() || !runtime) return;
+  const eventId = event.event_id ?? newSessionId();
+  const detectorVersion = event.detector_version ?? SDK_VERSION;
+  const interactionId = event.interaction_id;
   if (runtime.replay) {
     publishAnomaly({
-      anomaly_id: newSessionId(),
-      type: event.type,
+      anomaly_id: eventId,
+      type: event.type as "RAGE_CLICK" | "DEAD_CLICK" | "ERROR_CLICK",
       timestamp: Date.now(),
+      ...(interactionId ? { interaction_id: interactionId } : {}),
+      detector_version: detectorVersion,
     });
   }
-  runtime.queue.enqueue(event, high);
+  const payloadToEnqueue = {
+    ...event,
+    event_id: eventId,
+    detector_version: detectorVersion,
+  };
+  runtime.queue.enqueue(payloadToEnqueue, high);
 }
 
 const TOUCH_SCROLL_MS = 200;
@@ -172,7 +190,8 @@ function recordRage(el: Element, x: number, y: number, time: number): void {
   const rage = pushRageClick(rec);
   if (rage) {
     const component = componentOf(el);
-    emit(component ? { ...rage, component } : rage, true);
+    const interactionId = newSessionId();
+    emit(component ? { ...rage, component, interaction_id: interactionId } : { ...rage, interaction_id: interactionId }, true);
   }
 }
 
@@ -205,10 +224,15 @@ function onClick(event: MouseEvent): void {
   const el = asElement(event.target);
   if (!el) return;
   const selector = cssPath(el);
-  noteClick({ selector, time: Date.now() });
+  const interactionId = newSessionId();
+  noteClick({ selector, time: Date.now(), interactionId });
   const stop = armDeadClick(el, (dead) => {
     const component = componentOf(el);
-    emit(component ? { ...dead, component } : dead, false);
+    const enriched = {
+      ...(component ? { ...dead, component } : dead),
+      interaction_id: interactionId,
+    };
+    emit(enriched, false);
   });
   runtime.deadStops.push(stop);
   while (runtime.deadStops.length > 3) runtime.deadStops.shift()?.();
@@ -246,6 +270,7 @@ function start(rt: Runtime): void {
       environment: rt.options.environment ?? 'production',
       endpoint: rt.replayEndpoint,
       writeKey: rt.options.writeKey,
+      ...(rt.buildId ?? rt.options.buildId ? { buildId: rt.buildId ?? rt.options.buildId } : {}),
       ...(rt.checkoutEveryNms !== undefined ? { checkoutEveryNms: rt.checkoutEveryNms } : {}),
     });
   }

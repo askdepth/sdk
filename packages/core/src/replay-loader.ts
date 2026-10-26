@@ -5,6 +5,7 @@ export interface ReplayRuntimeConfig {
   environment: string;
   endpoint: string;
   writeKey: string;
+  buildId?: string;
   checkoutEveryNms?: number;
 }
 
@@ -84,6 +85,7 @@ export async function loadReplayModule(next: ReplayRuntimeConfig): Promise<Repla
         environment: next.environment,
         endpoint: next.endpoint,
         writeKey: next.writeKey,
+        ...(next.buildId ? { buildId: next.buildId } : {}),
         ...(next.checkoutEveryNms !== undefined ? { checkoutEveryNms: next.checkoutEveryNms } : {}),
       }) as ReplayEngine;
       created.start();

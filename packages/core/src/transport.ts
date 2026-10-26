@@ -70,9 +70,10 @@ export function createQueue(opts: {
   };
 
   const enqueue = (event: unknown, high: boolean) => {
-    const eventId = newSessionId();
-    const timestamp = new Date().toISOString();
-    const size = new TextEncoder().encode(JSON.stringify({ ...asRecord(event), event_id: eventId, timestamp })).length;
+    const rec = asRecord(event);
+    const eventId = typeof rec.event_id === "string" && rec.event_id ? rec.event_id : newSessionId();
+    const timestamp = typeof rec.timestamp === "string" && rec.timestamp ? rec.timestamp : new Date().toISOString();
+    const size = new TextEncoder().encode(JSON.stringify({ ...rec, event_id: eventId, timestamp })).length;
     items.push({ event, eventId, timestamp, bytes: size, high });
     bytes += size;
     trim();

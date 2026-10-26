@@ -1,6 +1,6 @@
 import { record } from '@rrweb/record';
 import type { RRWebEvent, ReplayUploadPayload } from '@askdepth/contracts';
-import { byteSize, encodeText, maxBufferBytes, splitBytes } from './bytes.js';
+import { byteSize, encodeText, maxBufferBytes, splitBytes, sha256Hex } from './bytes.js';
 import { compressBytes, type Compressed } from './compress.js';
 import {
   CHECKOUT_EVERY_MS,
@@ -33,6 +33,7 @@ export interface ReplayEngineConfig {
   writeKey: string;
   environment: string;
   endpoint: string;
+  buildId?: string;
   windowMs?: number;
   checkoutEveryNms?: number;
   maxBytes?: number;
@@ -97,6 +98,8 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
 
   // Flash concurrency & deduplication state
   let flashingPromise: Promise<ReplayUploadPayload[]> | null = null;
+  let inFlightAnomalyIds: string[] = [];
+  let inFlightPayloads: ReplayUploadPayload[] = [];
   let lastFlashTimestamp = 0;
   let lastFlashPayloads: ReplayUploadPayload[] = [];
   let sequenceNumber = 0;
@@ -200,11 +203,28 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
 
       // Deduplication & Concurrency lock: reuse in-flight flash or recent identical slice
       if (flashingPromise) {
+        if (!inFlightAnomalyIds.includes(anomalyId)) {
+          inFlightAnomalyIds.push(anomalyId);
+          for (const payload of inFlightPayloads) {
+            payload.manifest.triggering_anomaly_ids = [...inFlightAnomalyIds];
+          }
+        }
         return flashingPromise;
       }
       if (trigger - lastFlashTimestamp < FLASH_COOLDOWN_MS && lastFlashPayloads.length > 0) {
+        for (const payload of lastFlashPayloads) {
+          if (!payload.manifest.triggering_anomaly_ids?.includes(anomalyId)) {
+            payload.manifest.triggering_anomaly_ids = [
+              ...(payload.manifest.triggering_anomaly_ids || []),
+              anomalyId,
+            ];
+          }
+        }
         return lastFlashPayloads;
       }
+
+      inFlightAnomalyIds = [anomalyId];
+      inFlightPayloads = [];
 
       flashingPromise = (async () => {
         try {
@@ -226,6 +246,10 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
           const parts = splitBytes(compressed.bytes, CHUNK_BYTES);
           if (parts.length > MAX_REPLAY_CHUNKS) return [];
 
+          const requestedStart = Math.max(0, trigger - windowMs);
+          const checksum = sha256Hex(compressed.bytes);
+          const hasBaseline = Boolean(baseline) || events.some((event) => event.type === FULL_SNAPSHOT);
+
           const payloads: ReplayUploadPayload[] = parts.map((part, index) => {
             const bytes = new Uint8Array(new ArrayBuffer(part.byteLength));
             bytes.set(part);
@@ -233,16 +257,21 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
               manifest: {
                 slice_id: sliceId,
                 triggering_anomaly_id: anomalyId,
+                triggering_anomaly_ids: [...inFlightAnomalyIds],
                 session_id: config.sessionId,
                 environment: config.environment,
                 start_timestamp: start,
                 trigger_timestamp: trigger,
+                requested_start_timestamp: requestedStart,
                 duration_ms: duration,
-                has_baseline_snapshot: Boolean(baseline) || events.some((event) => event.type === FULL_SNAPSHOT),
+                has_baseline_snapshot: hasBaseline,
+                baseline_status: hasBaseline ? "present" : "missing",
                 events_count: events.length,
                 uncompressed_byte_size: byteSize(events),
                 compressed_byte_size: compressed.bytes.byteLength,
                 compression_algorithm: compressed.algorithm,
+                checksum,
+                ...(config.buildId ? { build_id: config.buildId } : {}),
                 sequence_number: sequenceNumber,
               },
               payload: bytes,
@@ -251,7 +280,10 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
             };
           });
 
+          inFlightPayloads = payloads;
+
           for (const payload of payloads) {
+            payload.manifest.triggering_anomaly_ids = [...inFlightAnomalyIds];
             try {
               await postReplay(config.endpoint, payload, config.writeKey, fetchImpl);
             } catch {
@@ -266,6 +298,7 @@ export function createReplayEngine(config: ReplayEngineConfig): ReplayInstance {
           return payloads;
         } finally {
           flashingPromise = null;
+          inFlightPayloads = [];
         }
       })();
 

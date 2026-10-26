@@ -29,6 +29,8 @@ export async function postReplay(
     'x-askdepth-slice-id': payload.manifest.slice_id,
     'x-askdepth-chunk-index': String(payload.part_index),
     'x-askdepth-total-chunks': String(payload.total_parts),
+    'x-askdepth-slice-manifest': JSON.stringify(payload.manifest),
+    ...(payload.manifest.build_id ? { 'x-askdepth-build-id': payload.manifest.build_id } : {}),
   };
 
   let attempt = 0;
